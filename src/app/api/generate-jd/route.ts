@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { anthropic } from "@/lib/claude";
+import { getAnthropic } from "@/lib/claude";
 
 export async function POST(req: NextRequest) {
   try {
     const { brief } = await req.json();
 
-    const message = await anthropic.messages.create({
+    const message = await getAnthropic().messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 2048,
       messages: [
