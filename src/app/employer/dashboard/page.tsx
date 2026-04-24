@@ -5,6 +5,67 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { CandidateApplication } from "@/lib/types";
 
+function ImportPanel({ onImported }: { onImported: () => void }) {
+  const [urls, setUrls] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<{ url: string; success: boolean; error?: string }[]>([]);
+
+  async function handleImport() {
+    const list = urls.split("\n").map(u => u.trim()).filter(Boolean);
+    if (!list.length) return;
+    setLoading(true);
+    setResults([]);
+    try {
+      const res = await fetch("/api/scrape", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: list }),
+      });
+      const data = await res.json();
+      setResults(data.results || []);
+      if (data.results?.some((r: { success: boolean }) => r.success)) onImported();
+    } catch {
+      setResults([{ url: "batch", success: false, error: "Request failed" }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="p-4 sm:p-6 space-y-4 max-w-xl">
+      <div>
+        <h3 className="font-semibold text-white mb-1">Import from LinkedIn</h3>
+        <p className="text-zinc-500 text-xs">Paste LinkedIn profile URLs (one per line). Powered by Scrapingdog + Claude AI.</p>
+      </div>
+      <textarea
+        rows={5}
+        value={urls}
+        onChange={e => setUrls(e.target.value)}
+        placeholder={"https://linkedin.com/in/profile-one\nhttps://linkedin.com/in/profile-two"}
+        className="w-full bg-white/3 border border-white/8 rounded-xl px-4 py-3 text-white placeholder-zinc-700 outline-none focus:border-violet-500/40 resize-none text-sm font-mono"
+      />
+      <button
+        onClick={handleImport}
+        disabled={loading || !urls.trim()}
+        className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-30 transition-all"
+      >
+        {loading ? "Importing..." : "Import profiles →"}
+      </button>
+      {results.length > 0 && (
+        <div className="space-y-1.5">
+          {results.map((r, i) => (
+            <div key={i} className={`text-xs px-3 py-2 rounded-lg flex items-center gap-2 ${r.success ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
+              <span>{r.success ? "✓" : "✗"}</span>
+              <span className="truncate">{r.url}</span>
+              {r.error && <span className="text-zinc-600 ml-auto shrink-0">{r.error}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const STATUS_OPTIONS = ["new", "shortlisted", "interview", "offer", "rejected"] as const;
 const STATUS_STYLES: Record<string, string> = {
   new: "bg-zinc-800 text-zinc-300",
@@ -45,6 +106,7 @@ export default function Dashboard() {
   const [selected, setSelected] = useState<CandidateApplication | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
+  const [activeTab, setActiveTab] = useState<"candidates" | "import">("candidates");
   const [filters, setFilters] = useState({ search: "", min_score: "0", status: "", wfh: "" });
 
   const fetchCandidates = useCallback(async () => {
@@ -70,9 +132,12 @@ export default function Dashboard() {
 
   const NavLinks = ({ onClick }: { onClick?: () => void }) => (
     <>
-      <Link href="/employer/dashboard" onClick={onClick} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/5 text-white text-sm font-medium">
+      <button onClick={() => { setActiveTab("candidates"); onClick?.(); }} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full text-left transition-all ${activeTab === "candidates" ? "bg-white/5 text-white" : "text-zinc-500 hover:text-white hover:bg-white/5"}`}>
         <span>👥</span> Candidates
-      </Link>
+      </button>
+      <button onClick={() => { setActiveTab("import"); onClick?.(); }} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full text-left transition-all ${activeTab === "import" ? "bg-white/5 text-white" : "text-zinc-500 hover:text-white hover:bg-white/5"}`}>
+        <span>🔗</span> Import LinkedIn
+      </button>
       <Link href="/employer/jd-builder" onClick={onClick} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-zinc-500 hover:text-white hover:bg-white/5 text-sm transition-all">
         <span>✍️</span> JD Builder
       </Link>
@@ -113,9 +178,19 @@ export default function Dashboard() {
           <button className="lg:hidden text-zinc-400 hover:text-white p-1" onClick={() => setSidebarOpen(true)}>
             <div className="space-y-1"><div className="w-5 h-0.5 bg-current rounded" /><div className="w-5 h-0.5 bg-current rounded" /><div className="w-4 h-0.5 bg-current rounded" /></div>
           </button>
-          <h1 className="font-semibold">Candidates</h1>
+          <h1 className="font-semibold">{activeTab === "import" ? "Import LinkedIn Profiles" : "Candidates"}</h1>
           <span className="ml-auto text-zinc-600 text-xs">{candidates.length} total</span>
         </div>
+
+        {/* Import tab */}
+        {activeTab === "import" && (
+          <div className="flex-1 overflow-y-auto">
+            <ImportPanel onImported={() => { setActiveTab("candidates"); fetchCandidates(); }} />
+          </div>
+        )}
+
+        {/* Candidates tab */}
+        {activeTab !== "import" && <>
 
         {/* Filters */}
         <div className="border-b border-white/5 px-4 sm:px-6 py-3 flex items-center gap-2 flex-wrap shrink-0">
@@ -305,6 +380,7 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+        </>}
       </div>
     </div>
   );
