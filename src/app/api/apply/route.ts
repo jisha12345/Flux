@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { anthropic } from "@/lib/claude";
+import { getAnthropic } from "@/lib/claude";
 import { CandidateApplication, ScoreBreakdown } from "@/lib/types";
 
-async function scoreCandidate(application: CandidateApplication): Promise<ScoreBreakdown> {
-  const prompt = `You are a senior technical recruiter at a fast-moving AI-first startup.
+async function scoreCandidate(application: CandidateApplication): Promise<ScoreBreakdown | null> {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) return null;
+
+    const prompt = `You are a senior technical recruiter at a fast-moving AI-first startup.
 Score this candidate application from 0-100 across 4 dimensions.
 
 Candidate: ${application.full_name}
@@ -39,19 +42,27 @@ Respond with ONLY valid JSON, no markdown:
   "summary": "<2 sentence recruiter note on this candidate>"
 }`;
 
-  const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 512,
-    messages: [{ role: "user", content: prompt }],
-  });
+    const message = await getAnthropic().messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 512,
+      messages: [{ role: "user", content: prompt }],
+    });
 
-  const text = (message.content[0] as { type: string; text: string }).text;
-  return JSON.parse(text) as ScoreBreakdown;
+    const text = (message.content[0] as { type: string; text: string }).text;
+    return JSON.parse(text) as ScoreBreakdown;
+  } catch (err) {
+    console.error("Scoring failed (non-fatal):", err);
+    return null;
+  }
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body: CandidateApplication = await req.json();
+
+    if (!body.full_name || !body.email) {
+      return NextResponse.json({ error: "Name and email are required" }, { status: 400 });
+    }
 
     const scoreBreakdown = await scoreCandidate(body);
 
@@ -60,19 +71,22 @@ export async function POST(req: NextRequest) {
       .insert([
         {
           ...body,
-          score: scoreBreakdown.total,
-          score_breakdown: scoreBreakdown,
+          score: scoreBreakdown?.total ?? null,
+          score_breakdown: scoreBreakdown ?? null,
           status: "new",
         },
       ])
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("Supabase error:", error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
-    return NextResponse.json({ success: true, id: data.id, score: scoreBreakdown.total });
+    return NextResponse.json({ success: true, id: data.id, score: scoreBreakdown?.total ?? null });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Submission failed" }, { status: 500 });
+    console.error("Apply route error:", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
