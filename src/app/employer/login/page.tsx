@@ -36,7 +36,7 @@ export default function EmployerLogin() {
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
         className="w-full max-w-sm relative z-10">
         <div className="text-center mb-8 space-y-2">
-          <Link href="/" className="inline-block text-2xl font-bold gradient-text mb-4">Flux</Link>
+          <Link href="/" className="inline-block text-3xl font-black gradient-text drop-shadow-lg mb-4">Flux</Link>
           <h1 className="text-2xl font-bold">Recruiter login</h1>
           <p className="text-zinc-500 text-sm">Access your candidate pipeline</p>
         </div>

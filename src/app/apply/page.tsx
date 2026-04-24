@@ -141,7 +141,7 @@ export default function ApplyPage() {
 
       {/* Header */}
       <div className="relative z-10 flex items-center justify-between px-4 sm:px-8 py-5">
-        <Link href="/" className="text-lg font-bold gradient-text">Flux</Link>
+        <Link href="/" className="text-2xl font-black gradient-text drop-shadow-lg">Flux</Link>
         <div className="flex items-center gap-3">
           <span className="text-zinc-600 text-sm hidden sm:block">{currentStep + 1} of {STEPS.length}</span>
           {currentStep > 0 && (
