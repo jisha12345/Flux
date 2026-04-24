@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { anthropic } from "@/lib/claude";
 import { CandidateApplication, ScoreBreakdown } from "@/lib/types";
 
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
 
     const scoreBreakdown = await scoreCandidate(body);
 
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await getSupabaseAdmin()
       .from("candidates")
       .insert([
         {
