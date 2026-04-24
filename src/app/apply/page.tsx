@@ -16,7 +16,7 @@ const STEPS = [
   { id: "wfh", question: "How do you like to work?", field: "wfh_preference", type: "select", options: ["Remote only", "Hybrid is fine", "In-office, I like the energy"], values: ["remote", "hybrid", "office"] },
   { id: "ai_comfort", question: "On a scale of 1–10, how deeply are you using AI in your work right now?", field: "ai_comfort_score", type: "select", options: ["1 — Just getting started", "2", "3", "4", "5 — Use it daily", "6", "7", "8", "9", "10 — It's my cofounder"], values: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"] },
   { id: "ai_tools", question: "Which AI tools are actually part of your workflow? Be specific.", field: "ai_tools_used", placeholder: "e.g. Claude for code review, Cursor for dev, Midjourney for assets...", type: "textarea" },
-  { id: "ai_project", question: "Tell us about something real you built or shipped using AI. Not a demo. Not a todo app.", field: "ai_project_built", placeholder: "What was the problem, what did you build, what happened after...", type: "textarea" },
+  { id: "ai_project", question: "Tell us about something real you built or shipped using AI. Not a demo. Not a todo app.", field: "ai_project_built", placeholder: "What was the problem, what did you build, what happened after...", type: "textarea", skipIf: (data: Record<string, string>) => parseInt(data.ai_comfort_score || "0") < 5 },
   { id: "ai_vision", question: "If you joined us, how would AI change the way you do your job in the next 6 months?", field: "ai_future_vision", placeholder: "Paint us a picture...", type: "textarea" },
   { id: "ai_without", question: "Imagine tomorrow all your AI tools are gone. How does that make you feel?", field: "ai_without_tools_feeling", placeholder: "Honest answer...", type: "textarea" },
   { id: "biggest_build", question: "What's the most ambitious thing you've ever built — with or without AI?", field: "biggest_build", placeholder: "The one that still makes you proud...", type: "textarea" },
@@ -50,11 +50,32 @@ export default function ApplyPage() {
     return true;
   }
 
+  function getNextStep(from: number): number {
+    let next = from + 1;
+    while (next < STEPS.length) {
+      const s = STEPS[next] as { skipIf?: (data: Record<string, string>) => boolean };
+      if (!s.skipIf || !s.skipIf(formData)) break;
+      next++;
+    }
+    return next;
+  }
+
+  function getPrevStep(from: number): number {
+    let prev = from - 1;
+    while (prev > 0) {
+      const s = STEPS[prev] as { skipIf?: (data: Record<string, string>) => boolean };
+      if (!s.skipIf || !s.skipIf(formData)) break;
+      prev--;
+    }
+    return prev;
+  }
+
   async function handleNext() {
     if (!canProceed()) return;
-    if (currentStep < STEPS.length - 1) {
+    const next = getNextStep(currentStep);
+    if (next < STEPS.length) {
       setDirection(1);
-      setCurrentStep((s) => s + 1);
+      setCurrentStep(next);
     } else {
       await handleSubmit();
     }
@@ -63,7 +84,7 @@ export default function ApplyPage() {
   function handleBack() {
     if (currentStep > 0) {
       setDirection(-1);
-      setCurrentStep((s) => s - 1);
+      setCurrentStep(getPrevStep(currentStep));
     }
   }
 
