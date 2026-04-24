@@ -152,8 +152,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-white/5 py-8 px-4 sm:px-6">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-zinc-600 text-sm">
-          <p className="font-bold text-zinc-400 gradient-text">Flux</p>
-          <p>Hiring for the AI era.</p>
+          <p className="text-zinc-600 text-sm">Powered by <span className="text-zinc-400 font-medium">Shiprocket</span></p>
         </div>
       </footer>
     </div>
