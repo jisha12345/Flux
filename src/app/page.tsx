@@ -74,7 +74,7 @@ export default function Home() {
             <span className="text-white">the AI era.</span>
           </h1>
           <p className="text-zinc-400 text-lg sm:text-xl max-w-xl mx-auto leading-relaxed">
-            Show us what you&apos;ve been working on.<br className="hidden sm:block" />
+            Show us what you&apos;ve built.<br className="hidden sm:block" />
             <span className="text-white font-medium">We&apos;ll take it from there.</span>
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
