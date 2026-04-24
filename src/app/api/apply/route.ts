@@ -58,6 +58,13 @@ Respond with ONLY valid JSON, no markdown:
 
 export async function POST(req: NextRequest) {
   try {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL === "your_supabase_project_url") {
+      return NextResponse.json({ error: "Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL to Vercel environment variables." }, { status: 500 });
+    }
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY === "your_supabase_service_role_key") {
+      return NextResponse.json({ error: "Supabase service key is not configured. Add SUPABASE_SERVICE_ROLE_KEY to Vercel environment variables." }, { status: 500 });
+    }
+
     const body: CandidateApplication = await req.json();
 
     if (!body.full_name || !body.email) {
