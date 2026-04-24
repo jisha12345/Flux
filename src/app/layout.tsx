@@ -5,8 +5,8 @@ import "./globals.css";
 const geist = Geist({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Careers — Join us",
-  description: "We're hiring people who build with AI.",
+  title: "Flux — Hiring for the AI era",
+  description: "Flux finds people who build with AI. Apply or hire.",
 };
 
 export default function RootLayout({
