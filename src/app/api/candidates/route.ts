@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -11,7 +11,8 @@ export async function GET(req: NextRequest) {
   const maxCtc = searchParams.get("max_expected_ctc");
   const search = searchParams.get("search");
 
-  let query = supabaseAdmin
+  const admin = getSupabaseAdmin();
+  let query = admin
     .from("candidates")
     .select("*")
     .gte("score", parseInt(minScore))
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const { id, status } = await req.json();
-  const { error } = await supabaseAdmin
+  const { error } = await getSupabaseAdmin()
     .from("candidates")
     .update({ status })
     .eq("id", id);
