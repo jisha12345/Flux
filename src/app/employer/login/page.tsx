@@ -141,19 +141,6 @@ export default function EmployerLogin() {
                 Continue with Google
               </button>
 
-              <button
-                onClick={() => handleOAuth("apple")}
-                disabled={!!oauthLoading}
-                className="w-full flex items-center justify-center gap-3 py-3 bg-zinc-900 text-white font-medium rounded-xl border border-white/10 hover:bg-zinc-800 active:scale-95 transition-all text-sm disabled:opacity-50"
-              >
-                {oauthLoading === "apple" ? (
-                  <span className="w-5 h-5 border-2 border-zinc-600 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <AppleIcon />
-                )}
-                Continue with Apple
-              </button>
-
               {/* Divider */}
               <div className="flex items-center gap-3 py-1">
                 <div className="flex-1 h-px bg-white/8" />
