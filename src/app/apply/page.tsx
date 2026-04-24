@@ -21,7 +21,7 @@ const STEPS = [
   { id: "ai_without", question: "Imagine tomorrow all your AI tools are gone. How does that make you feel?", field: "ai_without_tools_feeling", placeholder: "Honest answer...", type: "textarea" },
   { id: "biggest_build", question: "What's the most ambitious thing you've ever built — with or without AI?", field: "biggest_build", placeholder: "The one that still makes you proud...", type: "textarea" },
   { id: "why_us", question: "Why here, why now? (Skip the generic answer.)", field: "why_us", placeholder: "What specifically caught your attention...", type: "textarea" },
-  { id: "links", question: "Drop your links — LinkedIn, GitHub, portfolio.", field: "linkedin_url", placeholder: "LinkedIn URL", type: "text", subField: { field: "github_url", placeholder: "GitHub URL (optional)" }, extraField: { field: "portfolio_url", placeholder: "Portfolio / website (optional)" } },
+  { id: "links", question: "Drop your links — LinkedIn, GitHub, portfolio. (All optional)", field: "linkedin_url", placeholder: "LinkedIn URL (optional)", type: "text", optional: true, subField: { field: "github_url", placeholder: "GitHub URL (optional)" }, extraField: { field: "portfolio_url", placeholder: "Portfolio / website (optional)" } },
 ];
 
 export default function ApplyPage() {
@@ -42,6 +42,7 @@ export default function ApplyPage() {
   }
 
   function canProceed() {
+    if ((step as { optional?: boolean }).optional) return true;
     if (!currentValue.trim()) return false;
     if (step.id === "ctc" && !formData["expected_ctc"]?.trim()) return false;
     if (step.id === "current_role" && !formData["current_company"]?.trim()) return false;
