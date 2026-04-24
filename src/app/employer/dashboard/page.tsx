@@ -83,7 +83,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-black text-white flex">
       {/* Desktop sidebar */}
       <div className="hidden lg:flex w-60 border-r border-white/5 flex-col p-5 gap-5 shrink-0">
-        <Link href="/" className="text-xl font-bold gradient-text px-3">Flux</Link>
+        <Link href="/" className="text-2xl font-black gradient-text drop-shadow-lg px-3">Flux</Link>
         <nav className="flex flex-col gap-1"><NavLinks /></nav>
         <div className="mt-auto px-3 text-zinc-600 text-xs">{candidates.length} candidates</div>
       </div>

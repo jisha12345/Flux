@@ -34,7 +34,7 @@ export default function Home() {
       {/* Navbar */}
       <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/5 backdrop-blur-xl bg-black/50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="text-xl font-bold tracking-tight gradient-text">Flux</Link>
+          <Link href="/" className="text-2xl font-black tracking-tight gradient-text drop-shadow-lg">Flux</Link>
           <div className="hidden sm:flex items-center gap-3">
             <Link href="/apply" className="px-5 py-2 bg-white text-black text-sm font-semibold rounded-full hover:bg-zinc-100 transition-all">
               Apply now
