@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { anthropic } from "@/lib/claude";
+import { getAnthropic } from "@/lib/claude";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 // Extract LinkedIn profile ID from URL
@@ -44,7 +44,7 @@ Return ONLY valid JSON with these fields (use null if not available):
   "source": "linkedin"
 }`;
 
-  const message = await anthropic.messages.create({
+  const message = await getAnthropic().messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
     messages: [{ role: "user", content: prompt }],
@@ -71,7 +71,7 @@ Respond with ONLY valid JSON:
   "summary": "<2 sentence recruiter note>"
 }`;
 
-  const message = await anthropic.messages.create({
+  const message = await getAnthropic().messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 512,
     messages: [{ role: "user", content: prompt }],
