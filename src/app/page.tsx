@@ -75,7 +75,7 @@ export default function Home() {
           </h1>
           <p className="text-zinc-400 text-lg sm:text-xl max-w-xl mx-auto leading-relaxed">
             Degrees don&apos;t ship products. <span className="text-white font-medium">Builders do.</span><br className="hidden sm:block" />
-            Show us what you&apos;ve made — <span className="text-white font-medium">we&apos;ll take it from there.</span>
+            Show us what you&apos;ve made — <span className="text-white font-medium">we&apos;ll handle the rest.</span>
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
             <Link href="/apply" className="px-8 py-3.5 bg-white text-black font-semibold rounded-full hover:bg-zinc-100 transition-all text-sm shadow-lg shadow-white/10">
