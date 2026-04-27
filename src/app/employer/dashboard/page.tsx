@@ -5,13 +5,16 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { CandidateApplication } from "@/lib/types";
 
-function ImportPanel({ onImported }: { onImported: () => void }) {
-  const [urls, setUrls] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<{ url: string; success: boolean; error?: string }[]>([]);
+type ImportTab = "linkedin" | "paste" | "naukri";
 
-  async function handleImport() {
-    const list = urls.split("\n").map(u => u.trim()).filter(Boolean);
+function ImportPanel({ onImported }: { onImported: () => void }) {
+  const [tab, setTab] = useState<ImportTab>("linkedin");
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<{ label: string; success: boolean; name?: string; error?: string }[]>([]);
+
+  async function handleLinkedIn() {
+    const list = text.split("\n").map(u => u.trim()).filter(Boolean);
     if (!list.length) return;
     setLoading(true);
     setResults([]);
@@ -22,42 +25,103 @@ function ImportPanel({ onImported }: { onImported: () => void }) {
         body: JSON.stringify({ urls: list }),
       });
       const data = await res.json();
-      setResults(data.results || []);
+      setResults((data.results || []).map((r: { url: string; success: boolean; candidate?: { full_name?: string }; error?: string }) => ({
+        label: r.url, success: r.success, name: r.candidate?.full_name, error: r.error,
+      })));
       if (data.results?.some((r: { success: boolean }) => r.success)) onImported();
     } catch {
-      setResults([{ url: "batch", success: false, error: "Request failed" }]);
+      setResults([{ label: "Batch import", success: false, error: "Request failed" }]);
     } finally {
       setLoading(false);
     }
   }
 
+  async function handlePasteProfile(source: string) {
+    if (!text.trim()) return;
+    setLoading(true);
+    setResults([]);
+    try {
+      const res = await fetch("/api/parse-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, source }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setResults([{ label: data.candidate?.full_name || "Profile", success: true, name: data.candidate?.full_name }]);
+        onImported();
+      } else {
+        setResults([{ label: "Import", success: false, error: data.error }]);
+      }
+    } catch {
+      setResults([{ label: "Import", success: false, error: "Request failed" }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const TABS: { id: ImportTab; label: string; badge?: string }[] = [
+    { id: "linkedin", label: "LinkedIn" },
+    { id: "paste",    label: "Paste Profile", badge: "Any portal" },
+    { id: "naukri",   label: "Naukri / iimjobs" },
+  ];
+
+  const placeholders: Record<ImportTab, string> = {
+    linkedin: "https://linkedin.com/in/profile-one\nhttps://linkedin.com/in/profile-two",
+    paste: "Paste the full profile text here — name, experience, skills, education, CTC...\n\nWorks with any portal.",
+    naukri: "Copy the candidate profile page text from Naukri or iimjobs and paste it here.\n\nTip: Select all text on the profile page (Ctrl+A), copy, paste below.",
+  };
+
+  const descriptions: Record<ImportTab, string> = {
+    linkedin: "Paste LinkedIn profile URLs (one per line). Powered by Scrapingdog + Claude.",
+    paste: "Copy any profile text from any portal and Claude will extract and structure the candidate data automatically.",
+    naukri: "Open any Naukri or iimjobs candidate profile, copy all the text, and paste it here. Claude will parse it into a structured profile.",
+  };
+
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-xl">
+    <div className="p-4 sm:p-6 space-y-5 max-w-2xl">
       <div>
-        <h3 className="font-semibold text-white mb-1">Import from LinkedIn</h3>
-        <p className="text-zinc-500 text-xs">Paste LinkedIn profile URLs (one per line). Powered by Scrapingdog + Claude AI.</p>
+        <h3 className="font-semibold text-white text-lg mb-1">Import Candidates</h3>
+        <p className="text-zinc-500 text-sm">Pull in talent from any source — LinkedIn, Naukri, iimjobs, or any portal.</p>
       </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 bg-white/5 rounded-xl w-fit">
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => { setTab(t.id); setText(""); setResults([]); }}
+            className={`px-3 py-2 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5 ${tab === t.id ? "bg-white/10 text-white" : "text-zinc-500 hover:text-zinc-300"}`}>
+            {t.label}
+            {t.badge && <span className="text-zinc-600 text-[10px]">{t.badge}</span>}
+          </button>
+        ))}
+      </div>
+
+      <p className="text-zinc-600 text-xs">{descriptions[tab]}</p>
+
       <textarea
-        rows={5}
-        value={urls}
-        onChange={e => setUrls(e.target.value)}
-        placeholder={"https://linkedin.com/in/profile-one\nhttps://linkedin.com/in/profile-two"}
-        className="w-full bg-white/3 border border-white/8 rounded-xl px-4 py-3 text-white placeholder-zinc-700 outline-none focus:border-violet-500/40 resize-none text-sm font-mono"
+        rows={7}
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder={placeholders[tab]}
+        className="w-full bg-white/3 border border-white/8 rounded-xl px-4 py-3 text-white placeholder-zinc-700 outline-none focus:border-violet-500/40 resize-none text-sm font-mono leading-relaxed"
       />
+
       <button
-        onClick={handleImport}
-        disabled={loading || !urls.trim()}
-        className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-30 transition-all"
+        onClick={() => tab === "linkedin" ? handleLinkedIn() : handlePasteProfile(tab === "naukri" ? "naukri" : "paste")}
+        disabled={loading || !text.trim()}
+        className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 disabled:opacity-30 transition-all"
       >
-        {loading ? "Importing..." : "Import profiles →"}
+        {loading ? "Importing & scoring with AI..." : tab === "linkedin" ? "Import from LinkedIn →" : "Parse & import profile →"}
       </button>
+
       {results.length > 0 && (
         <div className="space-y-1.5">
           {results.map((r, i) => (
-            <div key={i} className={`text-xs px-3 py-2 rounded-lg flex items-center gap-2 ${r.success ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
+            <div key={i} className={`text-xs px-3 py-2.5 rounded-xl flex items-center gap-2 ${r.success ? "bg-green-500/10 text-green-400 border border-green-500/15" : "bg-red-500/10 text-red-400 border border-red-500/15"}`}>
               <span>{r.success ? "✓" : "✗"}</span>
-              <span className="truncate">{r.url}</span>
-              {r.error && <span className="text-zinc-600 ml-auto shrink-0">{r.error}</span>}
+              <span className="truncate">{r.name || r.label}</span>
+              {r.success && <span className="text-green-600 ml-auto shrink-0">Added to pipeline</span>}
+              {r.error && <span className="text-zinc-600 ml-auto shrink-0 truncate max-w-[200px]">{r.error}</span>}
             </div>
           ))}
         </div>
@@ -136,7 +200,7 @@ export default function Dashboard() {
         <span>👥</span> Candidates
       </button>
       <button onClick={() => { setActiveTab("import"); onClick?.(); }} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full text-left transition-all ${activeTab === "import" ? "bg-white/5 text-white" : "text-zinc-500 hover:text-white hover:bg-white/5"}`}>
-        <span>🔗</span> Import LinkedIn
+        <span>📥</span> Import Candidates
       </button>
       <Link href="/employer/jd-builder" onClick={onClick} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-zinc-500 hover:text-white hover:bg-white/5 text-sm transition-all">
         <span>✍️</span> JD Builder
@@ -178,7 +242,7 @@ export default function Dashboard() {
           <button className="lg:hidden text-zinc-400 hover:text-white p-1" onClick={() => setSidebarOpen(true)}>
             <div className="space-y-1"><div className="w-5 h-0.5 bg-current rounded" /><div className="w-5 h-0.5 bg-current rounded" /><div className="w-4 h-0.5 bg-current rounded" /></div>
           </button>
-          <h1 className="font-semibold">{activeTab === "import" ? "Import LinkedIn Profiles" : "Candidates"}</h1>
+          <h1 className="font-semibold">{activeTab === "import" ? "Import Candidates" : "Candidates"}</h1>
           <span className="ml-auto text-zinc-600 text-xs">{candidates.length} total</span>
         </div>
 

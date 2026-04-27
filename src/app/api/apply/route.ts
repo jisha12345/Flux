@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getAnthropic } from "@/lib/claude";
+import { sendApplicationNotification } from "@/lib/email";
 import { CandidateApplication, ScoreBreakdown } from "@/lib/types";
 
 async function scoreCandidate(application: CandidateApplication): Promise<ScoreBreakdown | null> {
@@ -75,14 +76,12 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await getSupabaseAdmin()
       .from("candidates")
-      .insert([
-        {
-          ...body,
-          score: scoreBreakdown?.total ?? null,
-          score_breakdown: scoreBreakdown ?? null,
-          status: "new",
-        },
-      ])
+      .insert([{
+        ...body,
+        score: scoreBreakdown?.total ?? null,
+        score_breakdown: scoreBreakdown ?? null,
+        status: "new",
+      }])
       .select()
       .single();
 
@@ -90,6 +89,9 @@ export async function POST(req: NextRequest) {
       console.error("Supabase error:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Send email notification (non-blocking)
+    sendApplicationNotification(body, scoreBreakdown?.total ?? null, scoreBreakdown);
 
     return NextResponse.json({ success: true, id: data.id, score: scoreBreakdown?.total ?? null });
   } catch (err) {
