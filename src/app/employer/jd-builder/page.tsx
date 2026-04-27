@@ -23,10 +23,10 @@ export default function JDBuilder() {
         body: JSON.stringify({ brief }),
       });
       const data = await res.json();
-      if (!data.success) throw new Error(data.error);
+      if (!data.success) throw new Error(data.error || "Generation failed");
       setJd(data.jd);
-    } catch {
-      setError("Generation failed. Try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Generation failed. Try again.");
     } finally {
       setLoading(false);
     }

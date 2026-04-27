@@ -22,7 +22,7 @@ create table candidates (
   gender text,
 
   -- Role & company
-  current_role text,
+  "current_role" text,
   current_company text,
   company_type text,          -- product / service / startup / logistics / mnc
   industry text,              -- E-commerce, Logistics, Fintech, etc.
@@ -147,7 +147,7 @@ create index candidates_created_idx on candidates(created_at desc);
 create index candidates_search_idx on candidates using gin(
   to_tsvector('english',
     coalesce(full_name, '') || ' ' ||
-    coalesce(current_role, '') || ' ' ||
+    coalesce("current_role", '') || ' ' ||
     coalesce(current_company, '') || ' ' ||
     coalesce(key_skills, '') || ' ' ||
     coalesce(functional_area, '') || ' ' ||

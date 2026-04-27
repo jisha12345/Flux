@@ -36,11 +36,13 @@ Respond with ONLY valid JSON, no markdown:
     });
 
     const text = (message.content[0] as { type: string; text: string }).text;
-    const jd = JSON.parse(text);
+    // Strip markdown code fences if Claude wraps the JSON
+    const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+    const jd = JSON.parse(clean);
 
     return NextResponse.json({ success: true, jd });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "JD generation failed" }, { status: 500 });
+    console.error("JD generation error:", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
