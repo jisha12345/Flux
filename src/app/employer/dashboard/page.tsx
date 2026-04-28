@@ -88,16 +88,16 @@ function AssessmentsPanel() {
   const [responses, setResponses] = useState<ResponseRow[]>([]);
   const [savedJDs, setSavedJDs] = useState<SavedJD[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<string | null>(null);
   const [viewingJD, setViewingJD] = useState<{ data: Record<string, unknown> | null; title?: string } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [deletingAssessment, setDeletingAssessment] = useState<string | null>(null);
+  const [cleaning, setCleaning] = useState(false);
 
   const load = useCallback(async () => {
     const sb = await import("@/lib/supabase").then(m => m.getSupabase());
     const [{ data: asmts }, { data: resps }, jdsRes] = await Promise.all([
       sb.from("assessments").select("id,title,role,assessment_type,created_at,jd_content,jd_brief").eq("is_active", true).order("created_at", { ascending: false }),
-      sb.from("assessment_responses").select("id,candidate_name,candidate_email,score,max_score,submitted_at,assessment_id,flagged,violations_count,score_breakdown").order("submitted_at", { ascending: false }),
+      sb.from("assessment_responses").select("id,candidate_name,candidate_email,score,max_score,submitted_at,assessment_id,flagged,violations_count,score_breakdown").order("score", { ascending: false }),
       fetch("/api/jd"),
     ]);
     const jdsData = await jdsRes.json();
@@ -120,8 +120,28 @@ function AssessmentsPanel() {
     setDeletingAssessment(assessmentId);
     await fetch("/api/employer/assessments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessment_id: assessmentId }) });
     setAssessments(a => a.filter(x => x.id !== assessmentId));
-    if (selected === assessmentId) setSelected(null);
     setDeletingAssessment(null);
+  }
+
+  async function cleanDuplicates() {
+    setCleaning(true);
+    const roleMap = new Map<string, AssessmentRow[]>();
+    for (const a of assessments) {
+      const key = (a.role || a.title).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      if (!roleMap.has(key)) roleMap.set(key, []);
+      roleMap.get(key)!.push(a);
+    }
+    const toDelete: string[] = [];
+    for (const group of roleMap.values()) {
+      if (group.length < 2) continue;
+      const sorted = [...group].sort((a, b) => responses.filter(r => r.assessment_id === b.id).length - responses.filter(r => r.assessment_id === a.id).length);
+      toDelete.push(...sorted.slice(1).map(a => a.id));
+    }
+    for (const id of toDelete) {
+      await fetch("/api/employer/assessments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessment_id: id }) });
+    }
+    setAssessments(a => a.filter(x => !toDelete.includes(x.id)));
+    setCleaning(false);
   }
 
   function getAnalysisLines(r: ResponseRow): [string, string] {
@@ -129,15 +149,21 @@ function AssessmentsPanel() {
     const mcq = bd.filter(x => x.type === "mcq");
     const written = bd.filter(x => x.type === "written" || x.type === "coding");
     const mcqCorrect = mcq.filter(x => x.correct).length;
-    const line1 = mcq.length > 0
-      ? `${mcqCorrect}/${mcq.length} MCQ correct · ${r.score}% overall`
-      : `Score: ${r.score}%`;
-    const line2 = written.find(x => x.feedback)?.feedback || (r.score >= 75 ? "Strong performance across all sections." : r.score >= 50 ? "Solid attempt — some gaps in written responses." : "Limited depth in written answers.");
+    const line1 = mcq.length > 0 ? `${mcqCorrect}/${mcq.length} MCQ correct` : "";
+    const line2 = written.find(x => x.feedback)?.feedback
+      || (r.score >= 75 ? "Strong performance across all sections." : r.score >= 50 ? "Solid attempt — some gaps in written responses." : "Limited depth in written answers.");
     return [line1, line2];
   }
 
-  const filtered = selected ? responses.filter(r => r.assessment_id === selected) : responses;
-  const activeAssessment = assessments.find(a => a.id === selected);
+  const hasDuplicates = (() => {
+    const seen = new Set<string>();
+    for (const a of assessments) {
+      const key = (a.role || a.title).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      if (seen.has(key)) return true;
+      seen.add(key);
+    }
+    return false;
+  })();
 
   return (
     <div className="p-4 sm:p-6 space-y-8">
@@ -168,86 +194,86 @@ function AssessmentsPanel() {
       </div>
 
       {/* Assessments */}
-      <div className="space-y-3">
-        <h3 className="font-semibold text-white text-lg">Screening Assessments</h3>
-        <p className="text-zinc-500 text-sm">Click an assessment to see candidate responses.</p>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="font-semibold text-white text-lg">Screening Assessments</h3>
+          {hasDuplicates && (
+            <button onClick={cleanDuplicates} disabled={cleaning}
+              className="text-xs px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/15 rounded-lg transition-all disabled:opacity-40">
+              {cleaning ? "Cleaning..." : "Remove duplicates"}
+            </button>
+          )}
+        </div>
 
-        {loading ? null : (
-          <>
-            {assessments.length > 0 ? (
-              <div className="grid gap-2">
-                {assessments.map(a => {
-                  const respCount = responses.filter(r => r.assessment_id === a.id).length;
-                  return (
-                    <div key={a.id} className={`glass rounded-xl p-4 flex items-center gap-3 cursor-pointer transition-all ${selected === a.id ? "border-violet-500/40 bg-violet-500/5" : "hover:bg-white/3"}`}
-                      onClick={() => setSelected(selected === a.id ? null : a.id)}>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white text-sm font-medium truncate">{a.role || a.title}</p>
-                        <p className="text-zinc-500 text-xs mt-0.5 capitalize">{a.assessment_type} · {respCount} response{respCount !== 1 ? "s" : ""} · {new Date(a.created_at).toLocaleDateString("en-IN")}</p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {a.jd_content && (
-                          <button onClick={e => { e.stopPropagation(); setViewingJD({ data: a.jd_content, title: a.title }); }}
-                            className="text-xs px-2.5 py-1.5 glass rounded-lg text-zinc-400 hover:text-white transition-all">
-                            JD
-                          </button>
-                        )}
-                        <button onClick={e => { e.stopPropagation(); deleteAssessment(a.id); }}
-                          disabled={deletingAssessment === a.id}
-                          className="text-zinc-700 hover:text-red-400 transition-colors text-base leading-none disabled:opacity-30 w-6 h-6 flex items-center justify-center"
-                          title="Remove this assessment">
-                          {deletingAssessment === a.id ? "·" : "×"}
-                        </button>
-                      </div>
+        {loading ? (
+          <div className="space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="animate-pulse h-24 glass rounded-2xl" />)}</div>
+        ) : assessments.length === 0 ? (
+          <div className="glass rounded-2xl p-8 text-center text-zinc-600 text-sm">No assessments yet. Go to JD Builder → Generate screening test.</div>
+        ) : (
+          <div className="space-y-3">
+            {assessments.map(a => {
+              const aResponses = responses.filter(r => r.assessment_id === a.id);
+              return (
+                <div key={a.id} className="glass rounded-2xl overflow-hidden border border-white/5">
+                  {/* Assessment header */}
+                  <div className="px-4 py-3 flex items-center gap-3 border-b border-white/5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-semibold truncate">{a.role || a.title}</p>
+                      <p className="text-zinc-600 text-xs mt-0.5 capitalize">{a.assessment_type} · {aResponses.length} candidate{aResponses.length !== 1 ? "s" : ""} · {new Date(a.created_at).toLocaleDateString("en-IN")}</p>
                     </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="glass rounded-2xl p-8 text-center text-zinc-600 text-sm">No assessments yet. Go to JD Builder → Generate screening test.</div>
-            )}
-
-            {selected && activeAssessment && (
-              <div className="space-y-2 pt-2">
-                <p className="text-zinc-500 text-xs uppercase tracking-wider">{filtered.length} candidate{filtered.length !== 1 ? "s" : ""} — {activeAssessment.role || activeAssessment.title}</p>
-                {filtered.length === 0 ? (
-                  <div className="glass rounded-2xl p-6 text-center text-zinc-600 text-sm">No responses yet. Share the assessment link with candidates.</div>
-                ) : (
-                  <div className="space-y-2">
-                    {filtered.map(r => {
-                      const [line1, line2] = getAnalysisLines(r);
-                      const scoreColor = r.score >= 75 ? "text-green-400 border-green-500/50" : r.score >= 50 ? "text-yellow-400 border-yellow-500/50" : "text-zinc-400 border-zinc-600";
-                      return (
-                        <div key={r.id} className="glass rounded-xl p-4 flex items-start gap-4">
-                          {/* Score badge */}
-                          <div className={`rounded-xl border px-2.5 py-2 text-center shrink-0 min-w-[52px] ${scoreColor}`}>
-                            <p className="text-base font-bold leading-none">{r.score}</p>
-                            <p className="text-[10px] text-zinc-600 leading-none mt-0.5">/ 100</p>
-                          </div>
-                          {/* Info */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-white text-sm font-semibold">{r.candidate_name}</p>
-                              {r.flagged && <span className="text-[10px] px-1.5 py-0.5 bg-red-500/15 border border-red-500/20 text-red-400 rounded-full">⚠ Flagged</span>}
-                              {r.violations_count > 0 && <span className="text-[10px] text-red-400">{r.violations_count} violation{r.violations_count > 1 ? "s" : ""}</span>}
-                            </div>
-                            <p className="text-zinc-500 text-xs mt-0.5">{line1}</p>
-                            <p className="text-zinc-500 text-xs mt-0.5 leading-relaxed line-clamp-1">{line2}</p>
-                          </div>
-                          {/* Remove */}
-                          <button onClick={() => removeResponse(r.id)} disabled={removing === r.id}
-                            className="text-zinc-700 hover:text-red-400 transition-colors text-base leading-none disabled:opacity-40 shrink-0 w-6 h-6 flex items-center justify-center mt-0.5"
-                            title="Remove candidate">
-                            {removing === r.id ? "·" : "×"}
-                          </button>
-                        </div>
-                      );
-                    })}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {a.jd_content && (
+                        <button onClick={() => setViewingJD({ data: a.jd_content, title: a.title })}
+                          className="text-xs px-2.5 py-1 glass rounded-lg text-zinc-500 hover:text-white transition-all">
+                          JD
+                        </button>
+                      )}
+                      <button onClick={() => deleteAssessment(a.id)} disabled={deletingAssessment === a.id}
+                        className="text-zinc-700 hover:text-red-400 transition-colors text-lg leading-none disabled:opacity-30 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10"
+                        title="Delete this assessment">
+                        {deletingAssessment === a.id ? "·" : "×"}
+                      </button>
+                    </div>
                   </div>
-                )}
-              </div>
-            )}
-          </>
+
+                  {/* Candidate rows — always visible, sorted by score */}
+                  {aResponses.length === 0 ? (
+                    <div className="px-4 py-3 text-zinc-700 text-xs italic">No responses yet.</div>
+                  ) : (
+                    <div className="divide-y divide-white/5">
+                      {aResponses.map(r => {
+                        const [line1, line2] = getAnalysisLines(r);
+                        const scoreColor = r.score >= 75 ? "text-green-400" : r.score >= 50 ? "text-yellow-400" : "text-zinc-500";
+                        const scoreBg = r.score >= 75 ? "bg-green-500/10 border-green-500/20" : r.score >= 50 ? "bg-yellow-500/10 border-yellow-500/20" : "bg-white/3 border-white/8";
+                        return (
+                          <div key={r.id} className="px-4 py-3 flex items-center gap-3">
+                            <div className={`rounded-lg border px-2 py-1 text-center shrink-0 min-w-[44px] ${scoreBg}`}>
+                              <p className={`text-sm font-bold leading-none ${scoreColor}`}>{r.score}</p>
+                              <p className="text-[9px] text-zinc-700 leading-none mt-0.5">/100</p>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className="text-white text-sm font-medium">{r.candidate_name}</p>
+                                {r.flagged && <span className="text-[10px] px-1.5 py-0.5 bg-red-500/15 border border-red-500/20 text-red-400 rounded-full">⚠ Flagged</span>}
+                                {r.violations_count > 0 && <span className="text-[10px] text-red-400">{r.violations_count} violation{r.violations_count > 1 ? "s" : ""}</span>}
+                              </div>
+                              {line1 && <p className="text-zinc-600 text-xs mt-0.5">{line1}</p>}
+                              <p className="text-zinc-500 text-xs mt-0.5 line-clamp-1 leading-relaxed">{line2}</p>
+                            </div>
+                            <button onClick={() => removeResponse(r.id)} disabled={removing === r.id}
+                              className="text-zinc-700 hover:text-red-400 transition-colors text-base leading-none disabled:opacity-40 shrink-0 w-6 h-6 flex items-center justify-center rounded hover:bg-red-500/10"
+                              title="Remove candidate">
+                              {removing === r.id ? "·" : "×"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
