@@ -9,7 +9,8 @@ type ImportTab = "linkedin" | "paste" | "naukri" | "jdsearch";
 type ActiveTab = "candidates" | "import" | "assessments" | "rankings";
 
 interface AssessmentRow { id: string; title: string; role: string; assessment_type: string; created_at: string; jd_content: Record<string, unknown> | null; jd_brief: string | null; }
-interface ResponseRow { id: string; candidate_name: string; candidate_email: string; score: number; submitted_at: string; assessment_id: string; flagged: boolean; violations_count: number; }
+interface ScoreBreakdownItem { type: string; correct?: boolean; points_earned: number; max_points: number; feedback?: string; }
+interface ResponseRow { id: string; candidate_name: string; candidate_email: string; score: number; max_score: number; submitted_at: string; assessment_id: string; flagged: boolean; violations_count: number; score_breakdown: ScoreBreakdownItem[] | null; }
 interface SavedJD { id: string; title: string; department?: string; location?: string; type?: string; experience_range?: string; ctc_range?: string; about_role?: string; responsibilities?: string[]; requirements?: string[]; nice_to_have?: string[]; ai_expectations?: string; created_at: string; }
 interface RankingEntry {
   candidate: CandidateApplication;
@@ -90,12 +91,13 @@ function AssessmentsPanel() {
   const [selected, setSelected] = useState<string | null>(null);
   const [viewingJD, setViewingJD] = useState<{ data: Record<string, unknown> | null; title?: string } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [deletingAssessment, setDeletingAssessment] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const sb = await import("@/lib/supabase").then(m => m.getSupabase());
     const [{ data: asmts }, { data: resps }, jdsRes] = await Promise.all([
-      sb.from("assessments").select("id,title,role,assessment_type,created_at,jd_content,jd_brief").order("created_at", { ascending: false }),
-      sb.from("assessment_responses").select("id,candidate_name,candidate_email,score,submitted_at,assessment_id,flagged,violations_count").order("submitted_at", { ascending: false }),
+      sb.from("assessments").select("id,title,role,assessment_type,created_at,jd_content,jd_brief").eq("is_active", true).order("created_at", { ascending: false }),
+      sb.from("assessment_responses").select("id,candidate_name,candidate_email,score,max_score,submitted_at,assessment_id,flagged,violations_count,score_breakdown").order("submitted_at", { ascending: false }),
       fetch("/api/jd"),
     ]);
     const jdsData = await jdsRes.json();
@@ -112,6 +114,26 @@ function AssessmentsPanel() {
     await fetch("/api/assessment", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ response_id: responseId }) });
     setResponses(r => r.filter(x => x.id !== responseId));
     setRemoving(null);
+  }
+
+  async function deleteAssessment(assessmentId: string) {
+    setDeletingAssessment(assessmentId);
+    await fetch("/api/employer/assessments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assessment_id: assessmentId }) });
+    setAssessments(a => a.filter(x => x.id !== assessmentId));
+    if (selected === assessmentId) setSelected(null);
+    setDeletingAssessment(null);
+  }
+
+  function getAnalysisLines(r: ResponseRow): [string, string] {
+    const bd = r.score_breakdown || [];
+    const mcq = bd.filter(x => x.type === "mcq");
+    const written = bd.filter(x => x.type === "written" || x.type === "coding");
+    const mcqCorrect = mcq.filter(x => x.correct).length;
+    const line1 = mcq.length > 0
+      ? `${mcqCorrect}/${mcq.length} MCQ correct · ${r.score}% overall`
+      : `Score: ${r.score}%`;
+    const line2 = written.find(x => x.feedback)?.feedback || (r.score >= 75 ? "Strong performance across all sections." : r.score >= 50 ? "Solid attempt — some gaps in written responses." : "Limited depth in written answers.");
+    return [line1, line2];
   }
 
   const filtered = selected ? responses.filter(r => r.assessment_id === selected) : responses;
@@ -154,21 +176,32 @@ function AssessmentsPanel() {
           <>
             {assessments.length > 0 ? (
               <div className="grid gap-2">
-                {assessments.map(a => (
-                  <div key={a.id} className={`glass rounded-xl p-4 flex items-center gap-3 cursor-pointer transition-all ${selected === a.id ? "border-violet-500/40 bg-violet-500/5" : "hover:bg-white/3"}`}
-                    onClick={() => setSelected(selected === a.id ? null : a.id)}>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-medium truncate">{a.title}</p>
-                      <p className="text-zinc-500 text-xs mt-0.5">{a.assessment_type} · {responses.filter(r => r.assessment_id === a.id).length} responses · {new Date(a.created_at).toLocaleDateString("en-IN")}</p>
+                {assessments.map(a => {
+                  const respCount = responses.filter(r => r.assessment_id === a.id).length;
+                  return (
+                    <div key={a.id} className={`glass rounded-xl p-4 flex items-center gap-3 cursor-pointer transition-all ${selected === a.id ? "border-violet-500/40 bg-violet-500/5" : "hover:bg-white/3"}`}
+                      onClick={() => setSelected(selected === a.id ? null : a.id)}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium truncate">{a.role || a.title}</p>
+                        <p className="text-zinc-500 text-xs mt-0.5 capitalize">{a.assessment_type} · {respCount} response{respCount !== 1 ? "s" : ""} · {new Date(a.created_at).toLocaleDateString("en-IN")}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {a.jd_content && (
+                          <button onClick={e => { e.stopPropagation(); setViewingJD({ data: a.jd_content, title: a.title }); }}
+                            className="text-xs px-2.5 py-1.5 glass rounded-lg text-zinc-400 hover:text-white transition-all">
+                            JD
+                          </button>
+                        )}
+                        <button onClick={e => { e.stopPropagation(); deleteAssessment(a.id); }}
+                          disabled={deletingAssessment === a.id}
+                          className="text-zinc-700 hover:text-red-400 transition-colors text-base leading-none disabled:opacity-30 w-6 h-6 flex items-center justify-center"
+                          title="Remove this assessment">
+                          {deletingAssessment === a.id ? "·" : "×"}
+                        </button>
+                      </div>
                     </div>
-                    {a.jd_content && (
-                      <button onClick={e => { e.stopPropagation(); setViewingJD({ data: a.jd_content, title: a.title }); }}
-                        className="text-xs px-3 py-1.5 glass rounded-lg text-zinc-400 hover:text-white transition-all shrink-0">
-                        View JD
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="glass rounded-2xl p-8 text-center text-zinc-600 text-sm">No assessments yet. Go to JD Builder → Generate screening test.</div>
@@ -176,37 +209,40 @@ function AssessmentsPanel() {
 
             {selected && activeAssessment && (
               <div className="space-y-2 pt-2">
-                <p className="text-zinc-500 text-xs uppercase tracking-wider">Responses — {activeAssessment.title}</p>
+                <p className="text-zinc-500 text-xs uppercase tracking-wider">{filtered.length} candidate{filtered.length !== 1 ? "s" : ""} — {activeAssessment.role || activeAssessment.title}</p>
                 {filtered.length === 0 ? (
-                  <div className="glass rounded-2xl p-6 text-center text-zinc-600 text-sm">No responses yet.</div>
+                  <div className="glass rounded-2xl p-6 text-center text-zinc-600 text-sm">No responses yet. Share the assessment link with candidates.</div>
                 ) : (
                   <div className="space-y-2">
-                    {filtered.map(r => (
-                      <div key={r.id} className="glass rounded-xl p-4 flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-full border-2 flex flex-col items-center justify-center shrink-0 ${r.score >= 75 ? "border-green-500 text-green-400" : r.score >= 50 ? "border-yellow-500 text-yellow-400" : "border-violet-500 text-violet-400"}`}>
-                          <span className="text-xs font-bold leading-none">{r.score}</span>
-                          <span className="text-[8px] leading-none text-zinc-600">/100</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-white text-sm font-medium">{r.candidate_name}</p>
-                            {r.flagged && <span className="text-xs px-2 py-0.5 bg-red-500/15 border border-red-500/20 text-red-400 rounded-full">⚠ Flagged</span>}
+                    {filtered.map(r => {
+                      const [line1, line2] = getAnalysisLines(r);
+                      const scoreColor = r.score >= 75 ? "text-green-400 border-green-500/50" : r.score >= 50 ? "text-yellow-400 border-yellow-500/50" : "text-zinc-400 border-zinc-600";
+                      return (
+                        <div key={r.id} className="glass rounded-xl p-4 flex items-start gap-4">
+                          {/* Score badge */}
+                          <div className={`rounded-xl border px-2.5 py-2 text-center shrink-0 min-w-[52px] ${scoreColor}`}>
+                            <p className="text-base font-bold leading-none">{r.score}</p>
+                            <p className="text-[10px] text-zinc-600 leading-none mt-0.5">/ 100</p>
                           </div>
-                          <p className="text-zinc-500 text-xs truncate">{r.candidate_email}</p>
+                          {/* Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-white text-sm font-semibold">{r.candidate_name}</p>
+                              {r.flagged && <span className="text-[10px] px-1.5 py-0.5 bg-red-500/15 border border-red-500/20 text-red-400 rounded-full">⚠ Flagged</span>}
+                              {r.violations_count > 0 && <span className="text-[10px] text-red-400">{r.violations_count} violation{r.violations_count > 1 ? "s" : ""}</span>}
+                            </div>
+                            <p className="text-zinc-500 text-xs mt-0.5">{line1}</p>
+                            <p className="text-zinc-500 text-xs mt-0.5 leading-relaxed line-clamp-1">{line2}</p>
+                          </div>
+                          {/* Remove */}
+                          <button onClick={() => removeResponse(r.id)} disabled={removing === r.id}
+                            className="text-zinc-700 hover:text-red-400 transition-colors text-base leading-none disabled:opacity-40 shrink-0 w-6 h-6 flex items-center justify-center mt-0.5"
+                            title="Remove candidate">
+                            {removing === r.id ? "·" : "×"}
+                          </button>
                         </div>
-                        <div className="text-right shrink-0">
-                          <p className={`text-xs font-medium ${r.score >= 75 ? "text-green-400" : r.score >= 50 ? "text-yellow-400" : "text-zinc-500"}`}>
-                            {r.score >= 75 ? "Strong" : r.score >= 50 ? "Good" : "Weak"}
-                          </p>
-                          {r.violations_count > 0 && <p className="text-red-400 text-xs">{r.violations_count} violation{r.violations_count > 1 ? "s" : ""}</p>}
-                        </div>
-                        <button onClick={() => removeResponse(r.id)} disabled={removing === r.id}
-                          className="text-zinc-700 hover:text-red-400 transition-colors text-lg leading-none disabled:opacity-40 shrink-0 w-6 h-6 flex items-center justify-center"
-                          title="Remove candidate from this assessment">
-                          {removing === r.id ? "·" : "×"}
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
