@@ -52,12 +52,14 @@ Return ONLY valid JSON with these exact fields (use null if not available):
       messages: [{ role: "user", content: prompt }],
     });
 
-    const parsed = JSON.parse((message.content[0] as { type: string; text: string }).text);
+    const rawText = (message.content[0] as { type: string; text: string }).text;
+    const cleanText = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+    const parsed = JSON.parse(cleanText);
 
     // Score the profile
     const scorePrompt = `Score this candidate for an AI-first product/logistics company from 0-100.
 Profile: ${JSON.stringify(parsed, null, 2)}
-Return ONLY valid JSON: { "ai_depth": <0-25>, "communication": <0-25>, "experience_relevance": <0-25>, "ambition": <0-25>, "total": <0-100>, "summary": "<2 sentences>" }`;
+Return ONLY valid JSON, no markdown: { "ai_depth": <0-25>, "communication": <0-25>, "experience_relevance": <0-25>, "ambition": <0-25>, "total": <0-100>, "summary": "<2 sentences>" }`;
 
     const scoreMsg = await getAnthropic().messages.create({
       model: "claude-sonnet-4-6",
@@ -65,7 +67,9 @@ Return ONLY valid JSON: { "ai_depth": <0-25>, "communication": <0-25>, "experien
       messages: [{ role: "user", content: scorePrompt }],
     });
 
-    const breakdown = JSON.parse((scoreMsg.content[0] as { type: string; text: string }).text);
+    const rawScore = (scoreMsg.content[0] as { type: string; text: string }).text;
+    const cleanScore = rawScore.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+    const breakdown = JSON.parse(cleanScore);
 
     const { data: candidate, error } = await getSupabaseAdmin()
       .from("candidates")

@@ -540,27 +540,29 @@ function JDSearchPanel({ onImported }: { onImported: () => void }) {
       });
       const data = await res.json();
       setMeta(data.meta || null);
+      // Prefer parsed profiles (have real name/data); fall back to raw URLs
+      const parsedUrls = new Set((data.parsed || []).map((p: SearchedProfile) => p.url));
       const combined: SearchedProfile[] = [
-        ...(data.parsed || []).map((p: SearchedProfile) => ({ ...p, url: p.url || "" })),
-        ...(data.urls || []).filter((u: SearchedProfile) => !(data.parsed || []).find((p: SearchedProfile) => p.url === u.url)),
+        ...(data.parsed || []).map((p: SearchedProfile & { pageText?: string }) => ({ ...p, url: p.url || "" })),
+        ...(data.urls || []).filter((u: SearchedProfile) => !parsedUrls.has(u.url)),
       ];
       setResults(combined);
     } catch { setResults([]); }
     finally { setLoading(false); }
   }
 
-  async function importProfile(profile: SearchedProfile) {
+  async function importProfile(profile: SearchedProfile & { pageText?: string }) {
     if (importing.has(profile.url) || imported.has(profile.url)) return;
     setImporting(s => new Set([...s, profile.url]));
     try {
+      // Use full page text if available, otherwise build from fields
+      const text = (profile as { pageText?: string }).pageText?.trim() ||
+        [profile.name, `${profile.role || ""} at ${profile.company || ""}`, `Skills: ${(profile.skills || []).join(", ")}`, `Location: ${profile.location || ""}`, `Profile URL: ${profile.url}`, profile.snippet || ""]
+          .filter(Boolean).join("\n");
       const res = await fetch("/api/parse-profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: `${profile.name || ""}\n${profile.role || ""} at ${profile.company || ""}\nSkills: ${(profile.skills || []).join(", ")}\nLocation: ${profile.location || ""}\nProfile: ${profile.url}\n${profile.snippet || ""}`,
-          source: "search",
-          linkedin_url: profile.url.includes("linkedin") ? profile.url : undefined,
-        }),
+        body: JSON.stringify({ text, source: "search" }),
       });
       const data = await res.json();
       if (data.success) { setImported(s => new Set([...s, profile.url])); onImported(); }
@@ -828,7 +830,7 @@ export default function Dashboard() {
   const NavLinks = ({ onClick }: { onClick?: () => void }) => (
     <>
       <button onClick={() => { setActiveTab("candidates"); onClick?.(); }} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full text-left transition-all ${activeTab === "candidates" ? "bg-white/5 text-white" : "text-zinc-500 hover:text-white hover:bg-white/5"}`}>
-        <span>👥</span> Candidates
+        <span>🏠</span> Dashboard
       </button>
       <button onClick={() => { setActiveTab("rankings"); onClick?.(); }} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full text-left transition-all ${activeTab === "rankings" ? "bg-white/5 text-white" : "text-zinc-500 hover:text-white hover:bg-white/5"}`}>
         <span>🏆</span> Rankings
@@ -846,7 +848,7 @@ export default function Dashboard() {
   );
 
   const TAB_LABELS: Record<ActiveTab, string> = {
-    candidates: "Candidates",
+    candidates: "Dashboard",
     rankings: "Rankings",
     import: "Import Candidates",
     assessments: "Assessments",
