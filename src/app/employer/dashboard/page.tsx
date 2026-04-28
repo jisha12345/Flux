@@ -510,8 +510,8 @@ function JDSearchPanel({ onImported }: { onImported: () => void }) {
     <div className="space-y-5">
       <div className="space-y-1">
         <p className="text-zinc-400 text-xs">Select a JD to search for matching candidates across job platforms. Claude generates smart search queries based on the role requirements.</p>
-        {meta && !meta.brave_configured && (
-          <p className="text-amber-500/80 text-xs">Add <code className="text-amber-400">BRAVE_SEARCH_API_KEY</code> to .env for better search results.</p>
+        {meta && !meta.serper_configured && (
+          <p className="text-amber-500/80 text-xs">Add <code className="text-amber-400">SERPER_API_KEY</code> for better results — free at serper.dev (2500 queries/month, no card).</p>
         )}
       </div>
 

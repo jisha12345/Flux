@@ -3,36 +3,54 @@ import { getAnthropic } from "@/lib/claude";
 
 interface SearchResult { url: string; title: string; snippet: string; }
 
-async function googleSearch(query: string): Promise<SearchResult[]> {
-  // Use Brave Search API if configured, else SerpAPI, else direct Google
-  const braveKey = process.env.BRAVE_SEARCH_API_KEY;
-  if (braveKey) {
-    const res = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=10`, {
-      headers: { "Accept": "application/json", "X-Subscription-Token": braveKey },
-    });
-    const data = await res.json();
-    return (data.web?.results || []).map((r: { url: string; title: string; description: string }) => ({
-      url: r.url, title: r.title, snippet: r.description,
-    }));
+async function webSearch(query: string): Promise<SearchResult[]> {
+  // 1. Serper.dev — 2500 free queries, no credit card (serper.dev)
+  const serperKey = process.env.SERPER_API_KEY;
+  if (serperKey) {
+    try {
+      const res = await fetch("https://google.serper.dev/search", {
+        method: "POST",
+        headers: { "X-API-KEY": serperKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ q: query, num: 10, gl: "in" }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await res.json();
+      return (data.organic || []).map((r: { link: string; title: string; snippet: string }) => ({
+        url: r.link, title: r.title, snippet: r.snippet,
+      }));
+    } catch { /* fall through */ }
   }
 
-  // Fallback: Google via user-agent spoofing (works in dev, unreliable in prod)
+  // 2. DuckDuckGo HTML — no API key needed
   try {
-    const res = await fetch(`https://www.google.com/search?q=${encodeURIComponent(query)}&num=10`, {
+    const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html",
+        "Accept": "text/html,application/xhtml+xml",
       },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(12000),
     });
     const html = await res.text();
     const urls: SearchResult[] = [];
-    const pattern = /href="(https:\/\/(?:www\.linkedin\.com\/in|github\.com|naukri\.com|hirist\.tech|iimjobs\.com)[^"]+)"/g;
+    // Extract result URLs from DuckDuckGo HTML
+    const linkPattern = /class="result__url"[^>]*>([^<]+)</g;
+    const snippetPattern = /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+    const hrefPattern = /href="\/\/duckduckgo\.com\/l\/\?uddg=([^"&]+)/g;
+
     let m;
-    while ((m = pattern.exec(html)) !== null) {
+    while ((m = hrefPattern.exec(html)) !== null) {
+      try {
+        const url = decodeURIComponent(m[1]);
+        if (!urls.find(u => u.url === url)) urls.push({ url, title: "", snippet: "" });
+      } catch { /* skip malformed */ }
+    }
+    // Also try direct href links
+    const directPattern = /href="(https:\/\/(?:www\.linkedin\.com\/in|github\.com)[^"]+)"/g;
+    while ((m = directPattern.exec(html)) !== null) {
       const url = m[1].split("&")[0];
       if (!urls.find(u => u.url === url)) urls.push({ url, title: "", snippet: "" });
     }
+    void linkPattern; void snippetPattern;
     return urls.slice(0, 10);
   } catch {
     return [];
@@ -102,7 +120,7 @@ export async function POST(req: NextRequest) {
   for (const platform of requestedPlatforms) {
     const platformQueries = queries[platform] || [];
     for (const q of platformQueries) {
-      const found = await googleSearch(`${q} ${jd_brief ? jd_brief.slice(0, 50) : ""}`);
+      const found = await webSearch(`${q} ${jd_brief ? jd_brief.slice(0, 50) : ""}`);
       results.push(...found.filter(r => !results.find(x => x.url === r.url)));
       if (results.length >= 20) break;
     }
@@ -158,7 +176,7 @@ Return ONLY valid JSON array. If you cannot parse a profile, skip it.`;
     meta: {
       total: unique.length,
       enriched: profileable.length,
-      brave_configured: !!process.env.BRAVE_SEARCH_API_KEY,
+      serper_configured: !!process.env.SERPER_API_KEY,
       playwright_configured: !!(process.env.PLAYWRIGHT_WS_URL || process.env.CHROMIUM_EXECUTABLE_PATH),
       scrapingdog_configured: !!process.env.SCRAPINGDOG_API_KEY,
     },
