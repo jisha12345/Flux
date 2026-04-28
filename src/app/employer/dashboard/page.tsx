@@ -7,6 +7,84 @@ import { CandidateApplication } from "@/lib/types";
 
 type ImportTab = "linkedin" | "paste" | "naukri";
 
+function AssessmentsPanel() {
+  const [assessments, setAssessments] = useState<{ id: string; title: string; role: string; assessment_type: string; created_at: string }[]>([]);
+  const [responses, setResponses] = useState<{ id: string; candidate_name: string; candidate_email: string; score: number; submitted_at: string; assessment_id: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      const admin = await import("@/lib/supabase").then(m => m.getSupabase());
+      const { data: asmts } = await admin.from("assessments").select("id,title,role,assessment_type,created_at").order("created_at", { ascending: false });
+      const { data: resps } = await admin.from("assessment_responses").select("id,candidate_name,candidate_email,score,submitted_at,assessment_id").order("submitted_at", { ascending: false });
+      setAssessments(asmts || []);
+      setResponses(resps || []);
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  const filtered = selected ? responses.filter(r => r.assessment_id === selected) : responses;
+
+  return (
+    <div className="p-4 sm:p-6 space-y-6">
+      <div>
+        <h3 className="font-semibold text-white text-lg mb-1">Screening Assessments</h3>
+        <p className="text-zinc-500 text-sm">Tests generated from JDs. Go to JD Builder → Generate screening test to create one.</p>
+      </div>
+
+      {loading ? <div className="text-zinc-600 text-sm">Loading...</div> : (
+        <>
+          {assessments.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-zinc-500 text-xs uppercase tracking-wider">Filter by assessment</p>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => setSelected(null)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${!selected ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : "border-white/8 text-zinc-500 hover:text-white"}`}>
+                  All ({responses.length})
+                </button>
+                {assessments.map(a => (
+                  <button key={a.id} onClick={() => setSelected(a.id === selected ? null : a.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${selected === a.id ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : "border-white/8 text-zinc-500 hover:text-white"}`}>
+                    {a.title} ({responses.filter(r => r.assessment_id === a.id).length})
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {filtered.length === 0 ? (
+            <div className="glass rounded-2xl p-8 text-center text-zinc-600 text-sm">
+              {assessments.length === 0 ? "No assessments yet. Create one from JD Builder." : "No responses yet for this assessment."}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map(r => (
+                <div key={r.id} className="glass rounded-xl p-4 flex items-center gap-4">
+                  <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center shrink-0 text-sm font-bold ${r.score >= 75 ? "border-green-500 text-green-400" : r.score >= 50 ? "border-yellow-500 text-yellow-400" : "border-violet-500 text-violet-400"}`}>
+                    {r.score}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-medium">{r.candidate_name}</p>
+                    <p className="text-zinc-500 text-xs truncate">{r.candidate_email}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={`text-xs font-medium ${r.score >= 75 ? "text-green-400" : r.score >= 50 ? "text-yellow-400" : "text-zinc-500"}`}>
+                      {r.score >= 75 ? "Strong" : r.score >= 50 ? "Good" : "Weak"}
+                    </p>
+                    <p className="text-zinc-700 text-xs">{new Date(r.submitted_at).toLocaleDateString("en-IN")}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function ImportPanel({ onImported }: { onImported: () => void }) {
   const [tab, setTab] = useState<ImportTab>("linkedin");
   const [text, setText] = useState("");
@@ -170,7 +248,7 @@ export default function Dashboard() {
   const [selected, setSelected] = useState<CandidateApplication | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
-  const [activeTab, setActiveTab] = useState<"candidates" | "import">("candidates");
+  const [activeTab, setActiveTab] = useState<"candidates" | "import" | "assessments">("candidates");
   const [filters, setFilters] = useState({ search: "", min_score: "0", status: "", wfh: "" });
 
   const fetchCandidates = useCallback(async () => {
@@ -201,6 +279,9 @@ export default function Dashboard() {
       </button>
       <button onClick={() => { setActiveTab("import"); onClick?.(); }} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full text-left transition-all ${activeTab === "import" ? "bg-white/5 text-white" : "text-zinc-500 hover:text-white hover:bg-white/5"}`}>
         <span>📥</span> Import Candidates
+      </button>
+      <button onClick={() => { setActiveTab("assessments"); onClick?.(); }} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full text-left transition-all ${activeTab === "assessments" ? "bg-white/5 text-white" : "text-zinc-500 hover:text-white hover:bg-white/5"}`}>
+        <span>🧪</span> Assessments
       </button>
       <Link href="/employer/jd-builder" onClick={onClick} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-zinc-500 hover:text-white hover:bg-white/5 text-sm transition-all">
         <span>✍️</span> JD Builder
@@ -242,7 +323,7 @@ export default function Dashboard() {
           <button className="lg:hidden text-zinc-400 hover:text-white p-1" onClick={() => setSidebarOpen(true)}>
             <div className="space-y-1"><div className="w-5 h-0.5 bg-current rounded" /><div className="w-5 h-0.5 bg-current rounded" /><div className="w-4 h-0.5 bg-current rounded" /></div>
           </button>
-          <h1 className="font-semibold">{activeTab === "import" ? "Import Candidates" : "Candidates"}</h1>
+          <h1 className="font-semibold">{activeTab === "import" ? "Import Candidates" : activeTab === "assessments" ? "Assessments" : "Candidates"}</h1>
           <span className="ml-auto text-zinc-600 text-xs">{candidates.length} total</span>
         </div>
 
@@ -250,6 +331,12 @@ export default function Dashboard() {
         {activeTab === "import" && (
           <div className="flex-1 overflow-y-auto">
             <ImportPanel onImported={() => { setActiveTab("candidates"); fetchCandidates(); }} />
+          </div>
+        )}
+
+        {activeTab === "assessments" && (
+          <div className="flex-1 overflow-y-auto">
+            <AssessmentsPanel />
           </div>
         )}
 

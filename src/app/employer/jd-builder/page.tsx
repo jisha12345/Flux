@@ -10,6 +10,8 @@ export default function JDBuilder() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
+  const [assessmentLink, setAssessmentLink] = useState("");
 
   async function generateJD() {
     if (!brief.trim()) return;
@@ -29,6 +31,28 @@ export default function JDBuilder() {
       setError(err instanceof Error ? err.message : "Generation failed. Try again.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function generateAssessment() {
+    if (!brief.trim() || !jd) return;
+    setAssessmentLoading(true);
+    setAssessmentLink("");
+    try {
+      const isTech = /engineer|developer|data|ml|ai|devops|architect|backend|frontend|fullstack|tech/i.test(jd.title + " " + jd.department);
+      const res = await fetch("/api/generate-assessment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief, role: jd.title, department: jd.department, type: isTech ? "tech" : "non-tech" }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      const link = `${window.location.origin}/assessment/${data.assessment.id}`;
+      setAssessmentLink(link);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Assessment generation failed.");
+    } finally {
+      setAssessmentLoading(false);
     }
   }
 
@@ -166,12 +190,31 @@ export default function JDBuilder() {
                 />
               </div>
 
-              <button
-                onClick={() => setSaved(true)}
-                className="px-6 py-2.5 bg-white text-black font-medium rounded-full hover:bg-zinc-100 transition-all text-sm"
-              >
-                Save JD
-              </button>
+              <div className="flex flex-wrap gap-3 items-center">
+                <button onClick={() => setSaved(true)}
+                  className="px-6 py-2.5 bg-white text-black font-medium rounded-full hover:bg-zinc-100 transition-all text-sm">
+                  Save JD
+                </button>
+                <button onClick={generateAssessment} disabled={assessmentLoading}
+                  className="px-6 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 text-white font-medium rounded-full hover:opacity-90 disabled:opacity-40 transition-all text-sm">
+                  {assessmentLoading ? "Generating test..." : "Generate screening test →"}
+                </button>
+              </div>
+
+              {assessmentLink && (
+                <div className="mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-xl space-y-2">
+                  <p className="text-green-400 text-sm font-medium">Screening test ready</p>
+                  <p className="text-zinc-400 text-xs">Share this link with candidates:</p>
+                  <div className="flex gap-2 items-center">
+                    <input readOnly value={assessmentLink}
+                      className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-xs font-mono outline-none" />
+                    <button onClick={() => navigator.clipboard.writeText(assessmentLink)}
+                      className="px-3 py-2 bg-white/10 hover:bg-white/15 text-white text-xs rounded-lg transition-all shrink-0">
+                      Copy
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
