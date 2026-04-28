@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   try {
-    const { brief, role, department, type } = await req.json();
+    const { brief, role, department, type, jd_content } = await req.json();
     if (!brief) return NextResponse.json({ error: "Brief is required" }, { status: 400 });
 
     const isTech = type === "tech" || /engineer|developer|data|ml|ai|devops|architect|backend|frontend|fullstack/i.test(role || "");
@@ -82,6 +82,7 @@ Make questions specific to the actual role — not generic. Include at least one
         questions: assessment.questions,
         time_limit_minutes: assessment.time_limit_minutes,
         jd_brief: brief,
+        jd_content: jd_content || null,
         is_active: true,
       }])
       .select()

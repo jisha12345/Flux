@@ -26,6 +26,28 @@ interface Assessment {
 
 type Phase = "intro" | "info" | "test" | "submitted";
 
+function WarningModal({ count, onDismiss }: { count: number; onDismiss: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/90 backdrop-blur-sm">
+      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+        className="bg-zinc-950 border border-red-500/30 rounded-3xl p-8 max-w-sm w-full text-center space-y-5">
+        <div className="text-5xl">⚠️</div>
+        <div className="space-y-2">
+          <h2 className="text-xl font-bold text-white">Integrity warning</h2>
+          <p className="text-zinc-400 text-sm leading-relaxed">
+            A tab switch or focus loss was detected. This has been recorded.
+          </p>
+          <p className="text-red-400 text-xs font-medium">Violation {count} of 5 — after 5, your test is auto-submitted.</p>
+        </div>
+        <button onClick={onDismiss}
+          className="w-full py-3 bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold rounded-xl hover:opacity-90 transition-all text-sm">
+          I understand — return to test
+        </button>
+      </motion.div>
+    </div>
+  );
+}
+
 export default function AssessmentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
@@ -41,18 +63,38 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
   const [error, setError] = useState("");
   const startTimeRef = useRef<number>(0);
 
+  // Anti-cheat state
+  const [violations, setViolations] = useState(0);
+  const [showWarning, setShowWarning] = useState(false);
+  const violationsRef = useRef(0);
+  const MAX_VIOLATIONS = 5;
+
   useEffect(() => {
     fetch(`/api/assessment?id=${id}`)
       .then(r => r.json())
       .then(d => {
-        if (d.success) { setAssessment(d.assessment); setTimeLeft(d.assessment.time_limit_minutes * 60); }
-        else setError("Assessment not found or no longer active.");
+        if (d.success) {
+          const shuffle = <T,>(arr: T[]): T[] => {
+            const a = [...arr];
+            for (let i = a.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+          };
+          const shuffledQs = (shuffle(d.assessment.questions) as Question[]).map((q: Question) => ({
+            ...q,
+            options: q.options ? shuffle(q.options) : undefined,
+          }));
+          setAssessment({ ...d.assessment, questions: shuffledQs });
+          setTimeLeft(d.assessment.time_limit_minutes * 60);
+        } else setError("Assessment not found or no longer active.");
       })
       .catch(() => setError("Failed to load assessment."))
       .finally(() => setLoading(false));
   }, [id]);
 
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = useCallback(async (autoSubmit = false) => {
     if (!assessment || submitting) return;
     setSubmitting(true);
     const elapsed = Math.round((Date.now() - startTimeRef.current) / 1000);
@@ -61,7 +103,15 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
       const res = await fetch("/api/assessment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assessment_id: id, candidate_name: name, candidate_email: email, answers: answersArray, time_taken_seconds: elapsed }),
+        body: JSON.stringify({
+          assessment_id: id,
+          candidate_name: name,
+          candidate_email: email,
+          answers: answersArray,
+          time_taken_seconds: elapsed,
+          violations_count: violationsRef.current,
+          flagged: autoSubmit || violationsRef.current >= MAX_VIOLATIONS,
+        }),
       });
       const data = await res.json();
       if (data.success) { setResult({ score: data.score, max_score: data.max_score }); setPhase("submitted"); }
@@ -70,15 +120,60 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
     finally { setSubmitting(false); }
   }, [assessment, submitting, answers, id, name, email]);
 
+  // Anti-cheat: tab switch + focus loss
+  useEffect(() => {
+    if (phase !== "test") return;
+
+    const handleViolation = () => {
+      violationsRef.current += 1;
+      setViolations(v => v + 1);
+      setShowWarning(true);
+      if (violationsRef.current >= MAX_VIOLATIONS) handleSubmit(true);
+    };
+
+    const onVisibilityChange = () => { if (document.hidden) handleViolation(); };
+    const onBlur = () => handleViolation();
+
+    // Block keyboard shortcuts
+    const onKeyDown = (e: KeyboardEvent) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      const blocked = ctrl && ["c", "v", "a", "u", "s", "p", "f"].includes(e.key.toLowerCase());
+      const devTools = e.key === "F12" || (ctrl && e.shiftKey && ["i", "j", "c", "k"].includes(e.key.toLowerCase()));
+      if (blocked || devTools) e.preventDefault();
+    };
+
+    // Block right-click
+    const onContextMenu = (e: MouseEvent) => e.preventDefault();
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("contextmenu", onContextMenu);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("blur", onBlur);
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("contextmenu", onContextMenu);
+    };
+  }, [phase, handleSubmit]);
+
   // Timer
   useEffect(() => {
     if (phase !== "test") return;
-    if (timeLeft <= 0) { handleSubmit(); return; }
+    if (timeLeft <= 0) { handleSubmit(false); return; }
     const t = setInterval(() => setTimeLeft(s => s - 1), 1000);
     return () => clearInterval(t);
   }, [phase, timeLeft, handleSubmit]);
 
   function startTest() {
+    // Request fullscreen
+    try {
+      const el = document.documentElement;
+      if (el.requestFullscreen) el.requestFullscreen();
+      else if ((el as HTMLElement & { webkitRequestFullscreen?: () => void }).webkitRequestFullscreen)
+        (el as HTMLElement & { webkitRequestFullscreen?: () => void }).webkitRequestFullscreen?.();
+    } catch { /* fullscreen optional */ }
     startTimeRef.current = Date.now();
     setPhase("test");
   }
@@ -102,7 +197,7 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
 
   if (error) return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-6 text-center">
-      <div><p className="text-zinc-500 text-lg">{error}</p></div>
+      <p className="text-zinc-500 text-lg">{error}</p>
     </div>
   );
 
@@ -115,7 +210,7 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
       <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="max-w-md w-full text-center space-y-8 relative z-10">
         <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2, type: "spring" }} className="text-6xl">🎯</motion.div>
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold">Assessment submitted</h1>
+          <h1 className="text-3xl font-bold">Test submitted</h1>
           <p className="text-zinc-400">Thanks {name.split(" ")[0]}. We&apos;ll be in touch.</p>
         </div>
         {result && (
@@ -129,8 +224,9 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
                   strokeWidth="2.5" strokeDasharray={`${result.score} 100`} strokeLinecap="round"
                   style={{ transform: "rotate(-90deg)", transformOrigin: "50% 50%" }} />
               </svg>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-3xl font-bold">{result.score}</span>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-3xl font-bold leading-none">{result.score}</span>
+                <span className="text-zinc-600 text-xs leading-none mt-0.5">/100</span>
               </div>
             </div>
             <p className="text-zinc-400 text-sm">
@@ -152,7 +248,7 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
         <div className="space-y-3">
           <div className="text-zinc-500 text-xs uppercase tracking-wider">{assessment?.role} · {assessment?.department}</div>
           <h1 className="text-3xl font-bold">{assessment?.title}</h1>
-          <p className="text-zinc-400">A short screening assessment. Answer honestly — there&apos;s no trick to gaming it.</p>
+          <p className="text-zinc-400">A short screening test. Answer honestly — there&apos;s no trick to gaming it.</p>
         </div>
         <div className="glass rounded-2xl p-6 space-y-3">
           {[
@@ -167,9 +263,18 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
             </div>
           ))}
         </div>
+        <div className="glass rounded-2xl p-4 space-y-2 border border-amber-500/20 bg-amber-500/5">
+          <p className="text-amber-400 text-sm font-semibold">Before you begin</p>
+          <ul className="text-zinc-400 text-xs space-y-1 list-none">
+            <li>· Do not switch tabs or leave this window — it is monitored</li>
+            <li>· AI tools and external resources are not permitted</li>
+            <li>· Copy-paste and right-click are disabled during the test</li>
+            <li>· Tab switches are recorded and flagged to the recruiter</li>
+          </ul>
+        </div>
         <button onClick={() => setPhase("info")}
           className="w-full py-3.5 bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold rounded-xl hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-violet-500/20">
-          Start assessment →
+          I understand — start test →
         </button>
       </motion.div>
     </div>
@@ -198,7 +303,12 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
   );
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col">
+    <div className="min-h-screen bg-black text-white flex flex-col select-none">
+      {/* Warning modal */}
+      <AnimatePresence>
+        {showWarning && <WarningModal count={violations} onDismiss={() => setShowWarning(false)} />}
+      </AnimatePresence>
+
       {/* Header */}
       <div className="border-b border-white/5 px-4 sm:px-8 h-14 flex items-center gap-4 shrink-0">
         <span className="text-lg font-black gradient-text">Flux</span>
@@ -208,7 +318,10 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
               animate={{ width: `${progress}%` }} transition={{ duration: 0.3 }} />
           </div>
         </div>
-        <div className={`text-sm font-mono font-medium tabular-nums ${timeLeft < 300 ? "text-red-400" : "text-zinc-400"}`}>
+        {violations > 0 && (
+          <span className="text-red-400 text-xs font-medium hidden sm:block">{violations} violation{violations > 1 ? "s" : ""}</span>
+        )}
+        <div className={`text-sm font-mono font-medium tabular-nums ${timeLeft < 120 ? "text-red-400" : timeLeft < 300 ? "text-amber-400" : "text-zinc-400"}`}>
           {formatTime(timeLeft)}
         </div>
         <span className="text-zinc-600 text-sm">{currentQ + 1}/{total}</span>
@@ -229,13 +342,14 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
                     <span className="text-zinc-700 text-xs">·</span>
                     <span className="text-zinc-600 text-xs">{q.points} pts</span>
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-semibold leading-snug">{q.question}</h2>
-                  {q.hint && <p className="text-zinc-600 text-sm italic">{q.hint}</p>}
+                  {/* Question text — no selection */}
+                  <h2 className="text-xl sm:text-2xl font-semibold leading-snug pointer-events-none">{q.question}</h2>
+                  {q.hint && <p className="text-zinc-600 text-sm italic pointer-events-none">{q.hint}</p>}
                 </div>
 
                 {q.type === "mcq" && q.options ? (
                   <div className="space-y-2.5">
-                    {q.options.map((opt) => (
+                    {q.options.map(opt => (
                       <button key={opt} onClick={() => setAnswers(a => ({ ...a, [q.id]: opt.charAt(0) }))}
                         className={`w-full text-left px-4 py-3.5 rounded-xl border text-sm transition-all ${
                           answers[q.id] === opt.charAt(0)
@@ -247,9 +361,12 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
                     ))}
                   </div>
                 ) : (
-                  <textarea rows={6} value={answers[q.id] || ""} onChange={e => setAnswers(a => ({ ...a, [q.id]: e.target.value }))}
-                    placeholder={q.type === "coding" ? "Describe your approach / write your solution..." : "Your answer..."}
-                    className="w-full bg-white/3 border border-white/8 rounded-2xl px-4 py-3.5 text-white placeholder-zinc-700 outline-none focus:border-violet-500/40 resize-none text-sm leading-relaxed transition-all"
+                  <textarea rows={6}
+                    value={answers[q.id] || ""}
+                    onChange={e => setAnswers(a => ({ ...a, [q.id]: e.target.value }))}
+                    onPaste={e => e.preventDefault()}
+                    placeholder={q.type === "coding" ? "Describe your approach..." : "Your answer..."}
+                    className="w-full bg-white/3 border border-white/8 rounded-2xl px-4 py-3.5 text-white placeholder-zinc-700 outline-none focus:border-violet-500/40 resize-none text-sm leading-relaxed transition-all select-text"
                   />
                 )}
 
@@ -266,7 +383,7 @@ export default function AssessmentPage({ params }: { params: Promise<{ id: strin
                       Next →
                     </button>
                   ) : (
-                    <button onClick={handleSubmit} disabled={submitting}
+                    <button onClick={() => handleSubmit(false)} disabled={submitting}
                       className="px-7 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold rounded-xl hover:opacity-90 active:scale-95 disabled:opacity-40 transition-all text-sm">
                       {submitting ? "Submitting..." : "Submit →"}
                     </button>

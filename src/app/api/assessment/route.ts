@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { assessment_id, candidate_name, candidate_email, answers, time_taken_seconds } = await req.json();
+    const { assessment_id, candidate_name, candidate_email, answers, time_taken_seconds, violations_count, flagged } = await req.json();
     if (!assessment_id || !answers) return NextResponse.json({ error: "Missing fields" }, { status: 400 });
 
     const { data: assessment } = await getSupabaseAdmin()
@@ -104,6 +104,8 @@ Return ONLY valid JSON array:
         max_score: maxScore,
         score_breakdown: breakdown,
         time_taken_seconds,
+        violations_count: violations_count || 0,
+        flagged: flagged || false,
       }])
       .select()
       .single();
@@ -113,6 +115,18 @@ Return ONLY valid JSON array:
     return NextResponse.json({ success: true, score: percentScore, max_score: maxScore, breakdown, response_id: response.id });
   } catch (err) {
     console.error("Assessment submit error:", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { response_id } = await req.json();
+    if (!response_id) return NextResponse.json({ error: "response_id required" }, { status: 400 });
+    const { error } = await getSupabaseAdmin().from("assessment_responses").delete().eq("id", response_id);
+    if (error) throw error;
+    return NextResponse.json({ success: true });
+  } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }

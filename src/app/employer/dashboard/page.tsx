@@ -5,81 +5,566 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { CandidateApplication } from "@/lib/types";
 
-type ImportTab = "linkedin" | "paste" | "naukri";
+type ImportTab = "linkedin" | "paste" | "naukri" | "jdsearch";
+type ActiveTab = "candidates" | "import" | "assessments" | "rankings";
+
+interface AssessmentRow { id: string; title: string; role: string; assessment_type: string; created_at: string; jd_content: Record<string, unknown> | null; jd_brief: string | null; }
+interface ResponseRow { id: string; candidate_name: string; candidate_email: string; score: number; submitted_at: string; assessment_id: string; flagged: boolean; violations_count: number; }
+interface SavedJD { id: string; title: string; department?: string; location?: string; type?: string; experience_range?: string; ctc_range?: string; about_role?: string; responsibilities?: string[]; requirements?: string[]; nice_to_have?: string[]; ai_expectations?: string; created_at: string; }
+interface RankingEntry {
+  candidate: CandidateApplication;
+  response: ResponseRow | null;
+  assessment: { id: string; title: string; role: string; department: string; jd_content: Record<string, unknown> | null } | null;
+  profile_score: number;
+  assessment_score: number | null;
+  combined_score: number;
+}
+interface MatchSummary { match_score: number; recommendation: "Strong hire" | "Consider" | "Pass"; summary: string; strengths: string[]; gaps: string[]; hiring_note: string; integrity_note: string | null; }
+
+function JDModal({ jd, title, onClose }: { jd: Record<string, unknown> | SavedJD | null; title?: string; onClose: () => void }) {
+  const data = jd as Record<string, unknown> | null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+        className="relative z-10 w-full max-w-2xl max-h-[85vh] overflow-y-auto glass rounded-3xl p-6 sm:p-8 space-y-6"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-zinc-500 text-xs uppercase tracking-wider mb-1">{data?.department as string || ""}</p>
+            <h2 className="text-2xl font-bold">{data?.title as string || title || "Job Description"}</h2>
+          </div>
+          <button onClick={onClose} className="text-zinc-500 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5 shrink-0 text-xl">×</button>
+        </div>
+        {data ? (
+          <>
+            <div className="flex flex-wrap gap-2">
+              {[{ v: data.location as string, i: "📍" }, { v: data.type as string, i: "⏱" }, { v: data.experience_range as string, i: "💼" }, { v: data.ctc_range as string, i: "💰" }]
+                .filter(t => t.v).map(t => (
+                  <span key={t.v} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/8 rounded-full text-xs text-zinc-300">
+                    {t.i} {t.v}
+                  </span>
+                ))}
+            </div>
+            {data.about_role && <p className="text-zinc-300 text-sm leading-relaxed">{data.about_role as string}</p>}
+            {data.ai_expectations && (
+              <div className="flex gap-3 p-4 bg-violet-500/8 border border-violet-500/20 rounded-2xl">
+                <span className="text-lg shrink-0">🤖</span>
+                <p className="text-zinc-300 text-sm leading-relaxed">{data.ai_expectations as string}</p>
+              </div>
+            )}
+            {([["responsibilities", "→", "text-violet-400", "bg-violet-500/8 border-violet-500/15"],
+               ["requirements", "✓", "text-blue-400", "bg-blue-500/8 border-blue-500/15"],
+               ["nice_to_have", "◇", "text-zinc-400", "bg-white/3 border-white/8"]] as [string, string, string, string][])
+              .map(([field, icon, color, bg]) => {
+                const items = data[field] as string[];
+                if (!items?.length) return null;
+                return (
+                  <div key={field} className="space-y-2">
+                    <p className="text-zinc-500 text-xs uppercase tracking-wider">{field.replace(/_/g, " ")}</p>
+                    <div className={`rounded-2xl border p-4 space-y-2 ${bg}`}>
+                      {items.map((item, i) => (
+                        <div key={i} className="flex gap-3 items-start">
+                          <span className={`${color} text-xs mt-0.5 shrink-0 font-bold`}>{icon}</span>
+                          <p className="text-zinc-300 text-sm leading-relaxed">{item}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+          </>
+        ) : (
+          <p className="text-zinc-500 text-sm">No JD content available.</p>
+        )}
+      </motion.div>
+    </div>
+  );
+}
 
 function AssessmentsPanel() {
-  const [assessments, setAssessments] = useState<{ id: string; title: string; role: string; assessment_type: string; created_at: string }[]>([]);
-  const [responses, setResponses] = useState<{ id: string; candidate_name: string; candidate_email: string; score: number; submitted_at: string; assessment_id: string }[]>([]);
+  const [assessments, setAssessments] = useState<AssessmentRow[]>([]);
+  const [responses, setResponses] = useState<ResponseRow[]>([]);
+  const [savedJDs, setSavedJDs] = useState<SavedJD[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
+  const [viewingJD, setViewingJD] = useState<{ data: Record<string, unknown> | null; title?: string } | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      const admin = await import("@/lib/supabase").then(m => m.getSupabase());
-      const { data: asmts } = await admin.from("assessments").select("id,title,role,assessment_type,created_at").order("created_at", { ascending: false });
-      const { data: resps } = await admin.from("assessment_responses").select("id,candidate_name,candidate_email,score,submitted_at,assessment_id").order("submitted_at", { ascending: false });
-      setAssessments(asmts || []);
-      setResponses(resps || []);
-      setLoading(false);
-    }
-    load();
+  const load = useCallback(async () => {
+    const sb = await import("@/lib/supabase").then(m => m.getSupabase());
+    const [{ data: asmts }, { data: resps }, jdsRes] = await Promise.all([
+      sb.from("assessments").select("id,title,role,assessment_type,created_at,jd_content,jd_brief").order("created_at", { ascending: false }),
+      sb.from("assessment_responses").select("id,candidate_name,candidate_email,score,submitted_at,assessment_id,flagged,violations_count").order("submitted_at", { ascending: false }),
+      fetch("/api/jd"),
+    ]);
+    const jdsData = await jdsRes.json();
+    setAssessments(asmts || []);
+    setResponses(resps || []);
+    setSavedJDs(jdsData.jds || []);
+    setLoading(false);
   }, []);
 
+  useEffect(() => { load(); }, [load]);
+
+  async function removeResponse(responseId: string) {
+    setRemoving(responseId);
+    await fetch("/api/assessment", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ response_id: responseId }) });
+    setResponses(r => r.filter(x => x.id !== responseId));
+    setRemoving(null);
+  }
+
   const filtered = selected ? responses.filter(r => r.assessment_id === selected) : responses;
+  const activeAssessment = assessments.find(a => a.id === selected);
+
+  return (
+    <div className="p-4 sm:p-6 space-y-8">
+      {/* Saved JDs */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-white text-lg">Job Descriptions</h3>
+          <Link href="/employer/jd-builder" className="text-xs text-violet-400 hover:text-violet-300 transition-colors">+ Create JD →</Link>
+        </div>
+        {loading ? <div className="text-zinc-600 text-sm">Loading...</div> : savedJDs.length === 0 ? (
+          <div className="glass rounded-xl p-5 text-center text-zinc-600 text-sm">No JDs saved yet. Go to JD Builder to create one.</div>
+        ) : (
+          <div className="grid gap-2">
+            {savedJDs.map(jd => (
+              <div key={jd.id} className="glass rounded-xl p-4 flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm font-medium truncate">{jd.title}</p>
+                  <p className="text-zinc-500 text-xs mt-0.5">{jd.department || "—"} · {jd.location || "—"} · {new Date(jd.created_at).toLocaleDateString("en-IN")}</p>
+                </div>
+                <button onClick={() => setViewingJD({ data: jd as unknown as Record<string, unknown>, title: jd.title })}
+                  className="text-xs px-3 py-1.5 glass rounded-lg text-zinc-400 hover:text-white transition-all shrink-0">
+                  Open JD
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Assessments */}
+      <div className="space-y-3">
+        <h3 className="font-semibold text-white text-lg">Screening Assessments</h3>
+        <p className="text-zinc-500 text-sm">Click an assessment to see candidate responses.</p>
+
+        {loading ? null : (
+          <>
+            {assessments.length > 0 ? (
+              <div className="grid gap-2">
+                {assessments.map(a => (
+                  <div key={a.id} className={`glass rounded-xl p-4 flex items-center gap-3 cursor-pointer transition-all ${selected === a.id ? "border-violet-500/40 bg-violet-500/5" : "hover:bg-white/3"}`}
+                    onClick={() => setSelected(selected === a.id ? null : a.id)}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium truncate">{a.title}</p>
+                      <p className="text-zinc-500 text-xs mt-0.5">{a.assessment_type} · {responses.filter(r => r.assessment_id === a.id).length} responses · {new Date(a.created_at).toLocaleDateString("en-IN")}</p>
+                    </div>
+                    {a.jd_content && (
+                      <button onClick={e => { e.stopPropagation(); setViewingJD({ data: a.jd_content, title: a.title }); }}
+                        className="text-xs px-3 py-1.5 glass rounded-lg text-zinc-400 hover:text-white transition-all shrink-0">
+                        View JD
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="glass rounded-2xl p-8 text-center text-zinc-600 text-sm">No assessments yet. Go to JD Builder → Generate screening test.</div>
+            )}
+
+            {selected && activeAssessment && (
+              <div className="space-y-2 pt-2">
+                <p className="text-zinc-500 text-xs uppercase tracking-wider">Responses — {activeAssessment.title}</p>
+                {filtered.length === 0 ? (
+                  <div className="glass rounded-2xl p-6 text-center text-zinc-600 text-sm">No responses yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {filtered.map(r => (
+                      <div key={r.id} className="glass rounded-xl p-4 flex items-center gap-4">
+                        <div className={`w-10 h-10 rounded-full border-2 flex flex-col items-center justify-center shrink-0 ${r.score >= 75 ? "border-green-500 text-green-400" : r.score >= 50 ? "border-yellow-500 text-yellow-400" : "border-violet-500 text-violet-400"}`}>
+                          <span className="text-xs font-bold leading-none">{r.score}</span>
+                          <span className="text-[8px] leading-none text-zinc-600">/100</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-white text-sm font-medium">{r.candidate_name}</p>
+                            {r.flagged && <span className="text-xs px-2 py-0.5 bg-red-500/15 border border-red-500/20 text-red-400 rounded-full">⚠ Flagged</span>}
+                          </div>
+                          <p className="text-zinc-500 text-xs truncate">{r.candidate_email}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className={`text-xs font-medium ${r.score >= 75 ? "text-green-400" : r.score >= 50 ? "text-yellow-400" : "text-zinc-500"}`}>
+                            {r.score >= 75 ? "Strong" : r.score >= 50 ? "Good" : "Weak"}
+                          </p>
+                          {r.violations_count > 0 && <p className="text-red-400 text-xs">{r.violations_count} violation{r.violations_count > 1 ? "s" : ""}</p>}
+                        </div>
+                        <button onClick={() => removeResponse(r.id)} disabled={removing === r.id}
+                          className="text-zinc-700 hover:text-red-400 transition-colors text-lg leading-none disabled:opacity-40 shrink-0 w-6 h-6 flex items-center justify-center"
+                          title="Remove candidate from this assessment">
+                          {removing === r.id ? "·" : "×"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {viewingJD && <JDModal jd={viewingJD.data} title={viewingJD.title} onClose={() => setViewingJD(null)} />}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function RankingsPanel() {
+  const [rankings, setRankings] = useState<RankingEntry[]>([]);
+  const [allAssessments, setAllAssessments] = useState<AssessmentRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterAssessment, setFilterAssessment] = useState<string>("all");
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [summaries, setSummaries] = useState<Record<string, MatchSummary | "loading" | "error">>({});
+
+  useEffect(() => {
+    fetch("/api/employer/rankings")
+      .then(r => r.json())
+      .then(d => {
+        setRankings(d.rankings || []);
+        setAllAssessments(d.assessments || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  async function loadSummary(entry: RankingEntry) {
+    const key = entry.candidate.id!;
+    if (summaries[key]) return;
+    setSummaries(s => ({ ...s, [key]: "loading" }));
+    try {
+      const res = await fetch("/api/employer/match-summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidate: entry.candidate, response: entry.response, assessment: entry.assessment }),
+      });
+      const data = await res.json();
+      setSummaries(s => ({ ...s, [key]: data.success ? data.summary : "error" }));
+    } catch {
+      setSummaries(s => ({ ...s, [key]: "error" }));
+    }
+  }
+
+  function toggleExpand(entry: RankingEntry) {
+    const key = entry.candidate.id!;
+    if (expanded === key) { setExpanded(null); return; }
+    setExpanded(key);
+    loadSummary(entry);
+  }
+
+  const filtered = filterAssessment === "all"
+    ? rankings
+    : rankings.filter(r => r.assessment?.id === filterAssessment || r.response?.assessment_id === filterAssessment);
+
+  const MEDALS = ["🥇", "🥈", "🥉"];
+  const REC_STYLES: Record<string, string> = {
+    "Strong hire": "bg-green-500/15 text-green-400 border border-green-500/20",
+    "Consider": "bg-yellow-500/15 text-yellow-400 border border-yellow-500/20",
+    "Pass": "bg-red-500/15 text-red-400 border border-red-500/20",
+  };
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <div>
-        <h3 className="font-semibold text-white text-lg mb-1">Screening Assessments</h3>
-        <p className="text-zinc-500 text-sm">Tests generated from JDs. Go to JD Builder → Generate screening test to create one.</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h3 className="font-semibold text-white text-lg mb-1">Candidate Rankings</h3>
+          <p className="text-zinc-500 text-sm">AI match scoring: 40% profile · 60% assessment. Click any candidate for full analysis.</p>
+        </div>
+        {allAssessments.length > 0 && (
+          <select value={filterAssessment} onChange={e => setFilterAssessment(e.target.value)}
+            className="bg-white/3 border border-white/8 rounded-xl px-3 py-2 text-sm text-white outline-none shrink-0">
+            <option value="all">All assessments</option>
+            {allAssessments.map(a => <option key={a.id} value={a.id}>{a.title}</option>)}
+          </select>
+        )}
       </div>
 
-      {loading ? <div className="text-zinc-600 text-sm">Loading...</div> : (
-        <>
-          {assessments.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-zinc-500 text-xs uppercase tracking-wider">Filter by assessment</p>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={() => setSelected(null)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${!selected ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : "border-white/8 text-zinc-500 hover:text-white"}`}>
-                  All ({responses.length})
-                </button>
-                {assessments.map(a => (
-                  <button key={a.id} onClick={() => setSelected(a.id === selected ? null : a.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${selected === a.id ? "border-violet-500/60 bg-violet-500/15 text-violet-200" : "border-white/8 text-zinc-500 hover:text-white"}`}>
-                    {a.title} ({responses.filter(r => r.assessment_id === a.id).length})
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+      {loading ? (
+        <div className="space-y-2">
+          {[...Array(5)].map((_, i) => <div key={i} className="animate-pulse h-16 glass rounded-xl" />)}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="glass rounded-2xl p-10 text-center text-zinc-600 text-sm">
+          No candidates to rank yet. Import profiles or have candidates complete assessments.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((entry, idx) => {
+            const key = entry.candidate.id!;
+            const summary = summaries[key];
+            const isExpanded = expanded === key;
+            const hasTest = entry.assessment_score !== null;
+            const scoreColor = entry.combined_score >= 75 ? "text-green-400" : entry.combined_score >= 50 ? "text-yellow-400" : "text-zinc-400";
+            const borderColor = entry.combined_score >= 75 ? "border-green-500/30" : entry.combined_score >= 50 ? "border-yellow-500/20" : "border-white/8";
 
-          {filtered.length === 0 ? (
-            <div className="glass rounded-2xl p-8 text-center text-zinc-600 text-sm">
-              {assessments.length === 0 ? "No assessments yet. Create one from JD Builder." : "No responses yet for this assessment."}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {filtered.map(r => (
-                <div key={r.id} className="glass rounded-xl p-4 flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center shrink-0 text-sm font-bold ${r.score >= 75 ? "border-green-500 text-green-400" : r.score >= 50 ? "border-yellow-500 text-yellow-400" : "border-violet-500 text-violet-400"}`}>
-                    {r.score}
+            return (
+              <div key={key} className={`glass rounded-2xl overflow-hidden border transition-all ${isExpanded ? borderColor : "border-white/5"}`}>
+                {/* Main row */}
+                <button className="w-full text-left px-4 sm:px-5 py-4 flex items-center gap-3 sm:gap-4 hover:bg-white/2 transition-colors"
+                  onClick={() => toggleExpand(entry)}>
+                  {/* Rank */}
+                  <div className="text-lg w-7 shrink-0 text-center">
+                    {idx < 3 ? MEDALS[idx] : <span className="text-zinc-600 text-sm font-mono">{idx + 1}</span>}
                   </div>
+
+                  {/* Avatar */}
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center text-xs font-bold shrink-0">
+                    {entry.candidate.full_name.split(" ").map(n => n[0]).slice(0, 2).join("").toUpperCase()}
+                  </div>
+
+                  {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-medium">{r.candidate_name}</p>
-                    <p className="text-zinc-500 text-xs truncate">{r.candidate_email}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-white text-sm font-medium">{entry.candidate.full_name}</p>
+                      {entry.response?.flagged && <span className="text-[10px] px-1.5 py-0.5 bg-red-500/15 text-red-400 rounded-full border border-red-500/20">⚠ Flagged</span>}
+                      {summary && typeof summary === "object" && (
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${REC_STYLES[summary.recommendation]}`}>{summary.recommendation}</span>
+                      )}
+                    </div>
+                    <p className="text-zinc-500 text-xs truncate mt-0.5">{entry.candidate.current_role} · {entry.candidate.current_company}</p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className={`text-xs font-medium ${r.score >= 75 ? "text-green-400" : r.score >= 50 ? "text-yellow-400" : "text-zinc-500"}`}>
-                      {r.score >= 75 ? "Strong" : r.score >= 50 ? "Good" : "Weak"}
-                    </p>
-                    <p className="text-zinc-700 text-xs">{new Date(r.submitted_at).toLocaleDateString("en-IN")}</p>
+
+                  {/* Scores */}
+                  <div className="hidden sm:flex items-center gap-3 shrink-0 text-right">
+                    <div className="text-center">
+                      <p className="text-zinc-600 text-[10px]">Profile</p>
+                      <p className="text-zinc-300 text-xs font-medium">{entry.profile_score}</p>
+                    </div>
+                    {hasTest ? (
+                      <div className="text-center">
+                        <p className="text-zinc-600 text-[10px]">Test</p>
+                        <p className="text-zinc-300 text-xs font-medium">{entry.assessment_score}</p>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <p className="text-zinc-600 text-[10px]">Test</p>
+                        <p className="text-zinc-700 text-xs">—</p>
+                      </div>
+                    )}
+                    <div className="text-center w-12">
+                      <p className="text-zinc-600 text-[10px]">Match</p>
+                      <p className={`text-base font-bold ${scoreColor}`}>{entry.combined_score}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                  <div className={`sm:hidden text-base font-bold shrink-0 ${scoreColor}`}>{entry.combined_score}</div>
+
+                  <span className={`text-zinc-600 text-sm transition-transform shrink-0 ${isExpanded ? "rotate-90" : ""}`}>›</span>
+                </button>
+
+                {/* Expanded summary */}
+                <AnimatePresence>
+                  {isExpanded && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }}
+                      className="overflow-hidden border-t border-white/5">
+                      <div className="px-4 sm:px-5 py-5">
+                        {summary === "loading" ? (
+                          <div className="flex items-center gap-2 text-zinc-500 text-sm">
+                            <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                            Generating AI match analysis...
+                          </div>
+                        ) : summary === "error" ? (
+                          <p className="text-red-400 text-sm">Failed to generate analysis. Check Anthropic API key.</p>
+                        ) : summary ? (
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <div className="relative w-16 h-16 shrink-0">
+                                <svg className="w-full h-full" viewBox="0 0 36 36">
+                                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#27272a" strokeWidth="2.5" />
+                                  <circle cx="18" cy="18" r="15.9" fill="none"
+                                    stroke={summary.match_score >= 75 ? "#22c55e" : summary.match_score >= 50 ? "#f59e0b" : "#6366f1"}
+                                    strokeWidth="2.5" strokeDasharray={`${summary.match_score} 100`} strokeLinecap="round"
+                                    style={{ transform: "rotate(-90deg)", transformOrigin: "50% 50%" }} />
+                                </svg>
+                                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                  <span className="text-sm font-bold leading-none">{summary.match_score}</span>
+                                  <span className="text-zinc-600 text-[9px] leading-none mt-0.5">/100</span>
+                                </div>
+                              </div>
+                              <div>
+                                <span className={`text-sm px-3 py-1.5 rounded-full font-semibold ${REC_STYLES[summary.recommendation]}`}>{summary.recommendation}</span>
+                                <p className="text-zinc-400 text-sm mt-2 leading-relaxed max-w-xl">{summary.summary}</p>
+                              </div>
+                            </div>
+                            <div className="grid sm:grid-cols-2 gap-3">
+                              {summary.strengths.length > 0 && (
+                                <div className="bg-green-500/5 border border-green-500/15 rounded-xl p-4 space-y-1.5">
+                                  <p className="text-green-400 text-xs font-semibold uppercase tracking-wider">Strengths</p>
+                                  {summary.strengths.map((s, i) => (
+                                    <div key={i} className="flex gap-2 items-start"><span className="text-green-500 text-xs shrink-0 mt-0.5">✓</span><p className="text-zinc-300 text-xs leading-relaxed">{s}</p></div>
+                                  ))}
+                                </div>
+                              )}
+                              {summary.gaps.length > 0 && (
+                                <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl p-4 space-y-1.5">
+                                  <p className="text-amber-400 text-xs font-semibold uppercase tracking-wider">Gaps</p>
+                                  {summary.gaps.map((g, i) => (
+                                    <div key={i} className="flex gap-2 items-start"><span className="text-amber-500 text-xs shrink-0 mt-0.5">⚡</span><p className="text-zinc-300 text-xs leading-relaxed">{g}</p></div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-start gap-2 p-3 bg-blue-500/5 border border-blue-500/15 rounded-xl">
+                              <span className="text-blue-400 text-xs shrink-0 mt-0.5">→</span>
+                              <p className="text-zinc-300 text-xs leading-relaxed">{summary.hiring_note}</p>
+                            </div>
+                            {summary.integrity_note && (
+                              <div className="flex items-start gap-2 p-3 bg-red-500/5 border border-red-500/15 rounded-xl">
+                                <span className="text-red-400 text-xs shrink-0 mt-0.5">⚠</span>
+                                <p className="text-zinc-300 text-xs leading-relaxed">{summary.integrity_note}</p>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface SearchedProfile { name?: string; role?: string; company?: string; skills?: string[]; location?: string; url: string; title?: string; snippet?: string; }
+
+function JDSearchPanel({ onImported }: { onImported: () => void }) {
+  const [jds, setJDs] = useState<SavedJD[]>([]);
+  const [selectedJD, setSelectedJD] = useState<string>("");
+  const [platforms, setPlatforms] = useState({ linkedin: true, github: false, naukri: false, iimjobs: false, hirist: false });
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<SearchedProfile[]>([]);
+  const [importing, setImporting] = useState<Set<string>>(new Set());
+  const [imported, setImported] = useState<Set<string>>(new Set());
+  const [meta, setMeta] = useState<Record<string, boolean | number> | null>(null);
+
+  useEffect(() => {
+    fetch("/api/jd").then(r => r.json()).then(d => setJDs(d.jds || []));
+  }, []);
+
+  async function search() {
+    const jd = jds.find(j => j.id === selectedJD);
+    if (!jd) return;
+    setLoading(true);
+    setResults([]);
+    const activePlatforms = Object.entries(platforms).filter(([, v]) => v).map(([k]) => k);
+    try {
+      const res = await fetch("/api/search-candidates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: jd.title,
+          skills: jd.requirements?.slice(0, 5) || [],
+          location: jd.location || "India",
+          platforms: activePlatforms,
+          jd_brief: jd.about_role || "",
+        }),
+      });
+      const data = await res.json();
+      setMeta(data.meta || null);
+      const combined: SearchedProfile[] = [
+        ...(data.parsed || []).map((p: SearchedProfile) => ({ ...p, url: p.url || "" })),
+        ...(data.urls || []).filter((u: SearchedProfile) => !(data.parsed || []).find((p: SearchedProfile) => p.url === u.url)),
+      ];
+      setResults(combined);
+    } catch { setResults([]); }
+    finally { setLoading(false); }
+  }
+
+  async function importProfile(profile: SearchedProfile) {
+    if (importing.has(profile.url) || imported.has(profile.url)) return;
+    setImporting(s => new Set([...s, profile.url]));
+    try {
+      const res = await fetch("/api/parse-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: `${profile.name || ""}\n${profile.role || ""} at ${profile.company || ""}\nSkills: ${(profile.skills || []).join(", ")}\nLocation: ${profile.location || ""}\nProfile: ${profile.url}\n${profile.snippet || ""}`,
+          source: "search",
+          linkedin_url: profile.url.includes("linkedin") ? profile.url : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) { setImported(s => new Set([...s, profile.url])); onImported(); }
+    } catch { /* ignore */ }
+    finally { setImporting(s => { const n = new Set(s); n.delete(profile.url); return n; }); }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="space-y-1">
+        <p className="text-zinc-400 text-xs">Select a JD to search for matching candidates across job platforms. Claude generates smart search queries based on the role requirements.</p>
+        {meta && !meta.brave_configured && (
+          <p className="text-amber-500/80 text-xs">Add <code className="text-amber-400">BRAVE_SEARCH_API_KEY</code> to .env for better search results.</p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-zinc-600 text-xs uppercase tracking-wider">Select JD</p>
+        <select value={selectedJD} onChange={e => setSelectedJD(e.target.value)}
+          className="w-full bg-white/3 border border-white/8 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-violet-500/40">
+          <option value="">Choose a job description...</option>
+          {jds.map(j => <option key={j.id} value={j.id}>{j.title} · {j.department}</option>)}
+        </select>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-zinc-600 text-xs uppercase tracking-wider">Platforms</p>
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(platforms) as (keyof typeof platforms)[]).map(p => (
+            <label key={p} className={`flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-all text-sm ${platforms[p] ? "border-violet-500/40 bg-violet-500/10 text-violet-300" : "border-white/8 text-zinc-500 hover:text-zinc-300"}`}>
+              <input type="checkbox" checked={platforms[p]} onChange={e => setPlatforms(pl => ({ ...pl, [p]: e.target.checked }))} className="hidden" />
+              {p === "linkedin" ? "🔗 LinkedIn" : p === "github" ? "🐙 GitHub" : p === "naukri" ? "🇮🇳 Naukri" : p === "iimjobs" ? "🎓 iimjobs" : "💻 Hirist"}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <button onClick={search} disabled={loading || !selectedJD}
+        className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 disabled:opacity-30 transition-all">
+        {loading ? "Searching job boards..." : "Search for candidates →"}
+      </button>
+
+      {results.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-zinc-500 text-xs uppercase tracking-wider">{results.length} profiles found</p>
+            <button onClick={() => results.forEach(importProfile)}
+              className="text-xs text-violet-400 hover:text-violet-300 transition-colors">
+              Import all →
+            </button>
+          </div>
+          {results.map((r, i) => (
+            <div key={i} className="glass rounded-xl p-3 flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-medium truncate">{r.name || r.title || r.url.split("/").pop()}</p>
+                {r.role && <p className="text-zinc-400 text-xs truncate">{r.role}{r.company ? ` · ${r.company}` : ""}</p>}
+                {r.skills?.length ? <p className="text-zinc-600 text-xs truncate mt-0.5">{r.skills.slice(0, 4).join(", ")}</p> : null}
+                <a href={r.url} target="_blank" rel="noopener noreferrer" className="text-zinc-700 text-xs truncate hover:text-zinc-500 transition-colors block mt-0.5">{r.url.replace("https://", "")}</a>
+              </div>
+              <button onClick={() => importProfile(r)} disabled={importing.has(r.url) || imported.has(r.url)}
+                className={`text-xs px-3 py-1.5 rounded-lg shrink-0 transition-all ${imported.has(r.url) ? "bg-green-500/15 text-green-400 border border-green-500/20" : "glass text-zinc-400 hover:text-white disabled:opacity-40"}`}>
+                {imported.has(r.url) ? "✓ Added" : importing.has(r.url) ? "..." : "Import"}
+              </button>
             </div>
-          )}
-        </>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -139,18 +624,21 @@ function ImportPanel({ onImported }: { onImported: () => void }) {
   }
 
   const TABS: { id: ImportTab; label: string; badge?: string }[] = [
+    { id: "jdsearch", label: "Search by JD", badge: "AI" },
     { id: "linkedin", label: "LinkedIn" },
     { id: "paste",    label: "Paste Profile", badge: "Any portal" },
     { id: "naukri",   label: "Naukri / iimjobs" },
   ];
 
   const placeholders: Record<ImportTab, string> = {
+    jdsearch: "",
     linkedin: "https://linkedin.com/in/profile-one\nhttps://linkedin.com/in/profile-two",
     paste: "Paste the full profile text here — name, experience, skills, education, CTC...\n\nWorks with any portal.",
     naukri: "Copy the candidate profile page text from Naukri or iimjobs and paste it here.\n\nTip: Select all text on the profile page (Ctrl+A), copy, paste below.",
   };
 
   const descriptions: Record<ImportTab, string> = {
+    jdsearch: "",
     linkedin: "Paste LinkedIn profile URLs (one per line). Powered by Scrapingdog + Claude.",
     paste: "Copy any profile text from any portal and Claude will extract and structure the candidate data automatically.",
     naukri: "Open any Naukri or iimjobs candidate profile, copy all the text, and paste it here. Claude will parse it into a structured profile.",
@@ -163,7 +651,6 @@ function ImportPanel({ onImported }: { onImported: () => void }) {
         <p className="text-zinc-500 text-sm">Pull in talent from any source — LinkedIn, Naukri, iimjobs, or any portal.</p>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 p-1 bg-white/5 rounded-xl w-fit">
         {TABS.map(t => (
           <button key={t.id} onClick={() => { setTab(t.id); setText(""); setResults([]); }}
@@ -174,35 +661,38 @@ function ImportPanel({ onImported }: { onImported: () => void }) {
         ))}
       </div>
 
-      <p className="text-zinc-600 text-xs">{descriptions[tab]}</p>
-
-      <textarea
-        rows={7}
-        value={text}
-        onChange={e => setText(e.target.value)}
-        placeholder={placeholders[tab]}
-        className="w-full bg-white/3 border border-white/8 rounded-xl px-4 py-3 text-white placeholder-zinc-700 outline-none focus:border-violet-500/40 resize-none text-sm font-mono leading-relaxed"
-      />
-
-      <button
-        onClick={() => tab === "linkedin" ? handleLinkedIn() : handlePasteProfile(tab === "naukri" ? "naukri" : "paste")}
-        disabled={loading || !text.trim()}
-        className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 disabled:opacity-30 transition-all"
-      >
-        {loading ? "Importing & scoring with AI..." : tab === "linkedin" ? "Import from LinkedIn →" : "Parse & import profile →"}
-      </button>
-
-      {results.length > 0 && (
-        <div className="space-y-1.5">
-          {results.map((r, i) => (
-            <div key={i} className={`text-xs px-3 py-2.5 rounded-xl flex items-center gap-2 ${r.success ? "bg-green-500/10 text-green-400 border border-green-500/15" : "bg-red-500/10 text-red-400 border border-red-500/15"}`}>
-              <span>{r.success ? "✓" : "✗"}</span>
-              <span className="truncate">{r.name || r.label}</span>
-              {r.success && <span className="text-green-600 ml-auto shrink-0">Added to pipeline</span>}
-              {r.error && <span className="text-zinc-600 ml-auto shrink-0 truncate max-w-[200px]">{r.error}</span>}
+      {tab === "jdsearch" ? (
+        <JDSearchPanel onImported={onImported} />
+      ) : (
+        <>
+          <p className="text-zinc-600 text-xs">{descriptions[tab]}</p>
+          <textarea
+            rows={7}
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder={placeholders[tab]}
+            className="w-full bg-white/3 border border-white/8 rounded-xl px-4 py-3 text-white placeholder-zinc-700 outline-none focus:border-violet-500/40 resize-none text-sm font-mono leading-relaxed"
+          />
+          <button
+            onClick={() => tab === "linkedin" ? handleLinkedIn() : handlePasteProfile(tab === "naukri" ? "naukri" : "paste")}
+            disabled={loading || !text.trim()}
+            className="px-5 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 disabled:opacity-30 transition-all"
+          >
+            {loading ? "Importing & scoring with AI..." : tab === "linkedin" ? "Import from LinkedIn →" : "Parse & import profile →"}
+          </button>
+          {results.length > 0 && (
+            <div className="space-y-1.5">
+              {results.map((r, i) => (
+                <div key={i} className={`text-xs px-3 py-2.5 rounded-xl flex items-center gap-2 ${r.success ? "bg-green-500/10 text-green-400 border border-green-500/15" : "bg-red-500/10 text-red-400 border border-red-500/15"}`}>
+                  <span>{r.success ? "✓" : "✗"}</span>
+                  <span className="truncate">{r.name || r.label}</span>
+                  {r.success && <span className="text-green-600 ml-auto shrink-0">Added to pipeline</span>}
+                  {r.error && <span className="text-zinc-600 ml-auto shrink-0 truncate max-w-[200px]">{r.error}</span>}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -249,7 +739,7 @@ export default function Dashboard() {
   const [selected, setSelected] = useState<CandidateApplication | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
-  const [activeTab, setActiveTab] = useState<"candidates" | "import" | "assessments">("candidates");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("candidates");
   const [filters, setFilters] = useState({ search: "", min_score: "0", status: "", wfh: "" });
 
   const fetchCandidates = useCallback(async () => {
@@ -278,6 +768,9 @@ export default function Dashboard() {
       <button onClick={() => { setActiveTab("candidates"); onClick?.(); }} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full text-left transition-all ${activeTab === "candidates" ? "bg-white/5 text-white" : "text-zinc-500 hover:text-white hover:bg-white/5"}`}>
         <span>👥</span> Candidates
       </button>
+      <button onClick={() => { setActiveTab("rankings"); onClick?.(); }} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full text-left transition-all ${activeTab === "rankings" ? "bg-white/5 text-white" : "text-zinc-500 hover:text-white hover:bg-white/5"}`}>
+        <span>🏆</span> Rankings
+      </button>
       <button onClick={() => { setActiveTab("import"); onClick?.(); }} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium w-full text-left transition-all ${activeTab === "import" ? "bg-white/5 text-white" : "text-zinc-500 hover:text-white hover:bg-white/5"}`}>
         <span>📥</span> Import Candidates
       </button>
@@ -289,6 +782,13 @@ export default function Dashboard() {
       </Link>
     </>
   );
+
+  const TAB_LABELS: Record<ActiveTab, string> = {
+    candidates: "Candidates",
+    rankings: "Rankings",
+    import: "Import Candidates",
+    assessments: "Assessments",
+  };
 
   return (
     <div className="min-h-screen bg-black text-white flex">
@@ -324,11 +824,10 @@ export default function Dashboard() {
           <button className="lg:hidden text-zinc-400 hover:text-white p-1" onClick={() => setSidebarOpen(true)}>
             <div className="space-y-1"><div className="w-5 h-0.5 bg-current rounded" /><div className="w-5 h-0.5 bg-current rounded" /><div className="w-4 h-0.5 bg-current rounded" /></div>
           </button>
-          <h1 className="font-semibold">{activeTab === "import" ? "Import Candidates" : activeTab === "assessments" ? "Assessments" : "Candidates"}</h1>
+          <h1 className="font-semibold">{TAB_LABELS[activeTab]}</h1>
           <span className="ml-auto text-zinc-600 text-xs">{candidates.length} total</span>
         </div>
 
-        {/* Import tab */}
         {activeTab === "import" && (
           <div className="flex-1 overflow-y-auto">
             <ImportPanel onImported={() => { setActiveTab("candidates"); fetchCandidates(); }} />
@@ -341,9 +840,13 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Candidates tab */}
-        {activeTab !== "import" && <>
+        {activeTab === "rankings" && (
+          <div className="flex-1 overflow-y-auto">
+            <RankingsPanel />
+          </div>
+        )}
 
+        {activeTab === "candidates" && <>
         {/* Filters */}
         <div className="border-b border-white/5 px-4 sm:px-6 py-3 flex items-center gap-2 flex-wrap shrink-0">
           <input type="text" placeholder="Search name, role, skills..." value={filters.search}
@@ -376,7 +879,6 @@ export default function Dashboard() {
         </div>
 
         <div className="flex-1 flex overflow-hidden">
-          {/* List — hidden on mobile when detail is open */}
           <div className={`${showDetail ? "hidden lg:flex" : "flex"} flex-col w-full lg:w-96 border-r border-white/5 overflow-y-auto shrink-0`}>
             {loading ? (
               <div className="p-4 space-y-3">
@@ -413,7 +915,6 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Detail panel */}
           <AnimatePresence>
             {selected && showDetail && (
               <motion.div key={selected.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
@@ -445,7 +946,6 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* Status buttons */}
                   <div className="flex flex-wrap gap-2 items-center">
                     <span className="text-zinc-600 text-xs w-full sm:w-auto">Move to:</span>
                     {STATUS_OPTIONS.map((s) => (
@@ -456,7 +956,6 @@ export default function Dashboard() {
                     ))}
                   </div>
 
-                  {/* Score breakdown */}
                   {selected.score_breakdown && (
                     <div className="glass rounded-2xl p-5 space-y-4">
                       <p className="text-sm font-medium text-zinc-300">AI Score Breakdown</p>
@@ -482,7 +981,6 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  {/* Quick facts */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {[
                       { label: "Current CTC", val: selected.current_ctc },
@@ -501,7 +999,6 @@ export default function Dashboard() {
                     ))}
                   </div>
 
-                  {/* Long answers */}
                   {[
                     { label: "AI tools used", val: selected.ai_tools_used },
                     { label: "Built with AI", val: selected.ai_project_built },
@@ -516,7 +1013,6 @@ export default function Dashboard() {
                     </div>
                   ) : null)}
 
-                  {/* Links */}
                   <div className="flex gap-3 flex-wrap pt-2 pb-8">
                     {selected.linkedin_url && <a href={selected.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-sm px-4 py-2 glass glass-hover rounded-xl text-blue-400">LinkedIn ↗</a>}
                     {selected.github_url && <a href={selected.github_url} target="_blank" rel="noopener noreferrer" className="text-sm px-4 py-2 glass glass-hover rounded-xl text-zinc-400">GitHub ↗</a>}

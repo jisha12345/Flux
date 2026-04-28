@@ -143,6 +143,7 @@ export default function JDBuilder() {
   const [assessmentLoading, setAssessmentLoading] = useState(false);
   const [assessmentLink, setAssessmentLink] = useState("");
   const [copied, setCopied] = useState(false);
+  const [savedId, setSavedId] = useState<string | null>(null);
 
   async function generateJD() {
     if (!brief.trim()) return;
@@ -169,7 +170,7 @@ export default function JDBuilder() {
     setAssessmentLink("");
     try {
       const isTech = /engineer|developer|data|ml|ai|devops|architect|backend|frontend|fullstack|tech/i.test(jd.title + " " + jd.department);
-      const res = await fetch("/api/generate-assessment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brief, role: jd.title, department: jd.department, type: isTech ? "tech" : "non-tech" }) });
+      const res = await fetch("/api/generate-assessment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brief, role: jd.title, department: jd.department, type: isTech ? "tech" : "non-tech", jd_content: jd }) });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       setAssessmentLink(`${window.location.origin}/assessment/${data.assessment.id}`);
@@ -266,9 +267,17 @@ export default function JDBuilder() {
                 {/* Footer actions */}
                 <div className="px-6 sm:px-8 pb-6 sm:pb-8 space-y-4 border-t border-white/5 pt-5">
                   <div className="flex flex-wrap gap-3">
-                    <button onClick={() => setSaved(true)}
+                    <button onClick={async () => {
+                      if (!jd) return;
+                      try {
+                        const res = await fetch("/api/jd", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(jd) });
+                        const data = await res.json();
+                        if (data.success) { setSaved(true); setSavedId(data.jd.id); }
+                        else setError(data.error);
+                      } catch { setError("Save failed"); }
+                    }}
                       className="px-6 py-2.5 bg-white text-black font-semibold rounded-full hover:bg-zinc-100 active:scale-95 transition-all text-sm">
-                      Save JD
+                      {saved ? "Saved ✓" : "Save JD"}
                     </button>
                     <button onClick={generateAssessment} disabled={assessmentLoading}
                       className="px-6 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold rounded-full hover:opacity-90 disabled:opacity-40 active:scale-95 transition-all text-sm">
