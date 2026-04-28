@@ -226,8 +226,9 @@ function ScoreRing({ score }: { score: number }) {
         <circle cx="18" cy="18" r="15.9" fill="none" stroke={color} strokeWidth="3"
           strokeDasharray={`${score} 100`} strokeLinecap="round" className="score-ring" />
       </svg>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-xs font-bold" style={{ color }}>{score}</span>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-xs font-bold leading-none" style={{ color }}>{score}</span>
+        <span className="text-zinc-600 text-[8px] leading-none mt-0.5">/100</span>
       </div>
     </div>
   );
@@ -437,8 +438,9 @@ export default function Dashboard() {
                           stroke={(selected.score || 0) >= 75 ? "#22c55e" : (selected.score || 0) >= 50 ? "#f59e0b" : "#6366f1"}
                           strokeWidth="2.5" strokeDasharray={`${selected.score || 0} 100`} strokeLinecap="round" className="score-ring" />
                       </svg>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-sm font-bold">{selected.score}</span>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-sm font-bold leading-none">{selected.score}</span>
+                        <span className="text-zinc-600 text-[9px] leading-none mt-0.5">/100</span>
                       </div>
                     </div>
                   </div>
