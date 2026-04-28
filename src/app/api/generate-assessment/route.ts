@@ -10,30 +10,32 @@ export async function POST(req: NextRequest) {
     const isTech = type === "tech" || /engineer|developer|data|ml|ai|devops|architect|backend|frontend|fullstack/i.test(role || "");
     const assessmentType = type || (isTech ? "tech" : "non-tech");
 
-    const prompt = `You are a senior hiring manager at an AI-first Indian product company. Create a screening assessment for this role.
+    const prompt = `You are a senior hiring manager at an AI-first Indian product company. Create a concise screening assessment for this role.
 
 Role: ${role || "Not specified"}
 Department: ${department || "Not specified"}
 Brief: ${brief}
 Type: ${assessmentType}
 
-Generate a ${isTech ? "30" : "25"}-minute assessment with exactly this structure:
+Generate a 10-12 minute assessment with exactly this structure:
 
 ${isTech ? `
-- 10 MCQ questions testing: algorithms/data structures (3), system design thinking (3), role-specific technical knowledge (3), AI/tools awareness (1)
-- 1 coding/technical problem (describe the problem clearly, no actual code needed from candidate — a written solution approach)
-- 2 situational/behavioral questions
+- 7 MCQ questions testing: role-specific technical knowledge (4), system design thinking (2), AI/tools awareness (1)
+- 1 coding/technical problem (written approach only, no actual code required)
+- 1 situational/behavioral question
 ` : `
-- 8 MCQ questions testing: domain knowledge (4), situational judgment (2), analytical thinking (1), AI awareness (1)
-- 3 written response questions (role-specific scenarios)
-- 1 case study / scenario analysis
+- 6 MCQ questions testing: domain knowledge (3), situational judgment (2), AI awareness (1)
+- 2 written response questions (role-specific scenarios, 2-3 sentences expected)
+- 1 short case study
 `}
+
+Keep questions sharp and specific to the role. No filler. Each written question should be answerable in 2-4 sentences.
 
 Return ONLY valid JSON, no markdown:
 {
-  "title": "<Role> Screening Assessment",
+  "title": "<Role> Screening Test",
   "assessment_type": "${assessmentType}",
-  "time_limit_minutes": ${isTech ? 30 : 25},
+  "time_limit_minutes": ${isTech ? 12 : 10},
   "questions": [
     {
       "id": 1,

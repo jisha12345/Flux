@@ -12,6 +12,7 @@ export default function JDBuilder() {
   const [saved, setSaved] = useState(false);
   const [assessmentLoading, setAssessmentLoading] = useState(false);
   const [assessmentLink, setAssessmentLink] = useState("");
+  const [copied, setCopied] = useState(false);
 
   async function generateJD() {
     if (!brief.trim()) return;
@@ -208,9 +209,22 @@ export default function JDBuilder() {
                   <div className="flex gap-2 items-center">
                     <input readOnly value={assessmentLink}
                       className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-xs font-mono outline-none" />
-                    <button onClick={() => navigator.clipboard.writeText(assessmentLink)}
-                      className="px-3 py-2 bg-white/10 hover:bg-white/15 text-white text-xs rounded-lg transition-all shrink-0">
-                      Copy
+                    <button onClick={() => {
+                      try {
+                        navigator.clipboard.writeText(assessmentLink);
+                      } catch {
+                        const el = document.createElement("textarea");
+                        el.value = assessmentLink;
+                        document.body.appendChild(el);
+                        el.select();
+                        document.execCommand("copy");
+                        document.body.removeChild(el);
+                      }
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                      className="px-3 py-2 bg-white/10 hover:bg-white/15 text-white text-xs rounded-lg transition-all shrink-0 min-w-[52px] text-center">
+                      {copied ? "✓ Copied" : "Copy"}
                     </button>
                   </div>
                 </div>
