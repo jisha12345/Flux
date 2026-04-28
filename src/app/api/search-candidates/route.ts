@@ -102,7 +102,7 @@ async function fetchViaScrapingdog(url: string): Promise<string> {
 
 export async function POST(req: NextRequest) {
   try {
-    const { role, skills, location, platforms, jd_brief } = await req.json();
+    const { role, skills, location, platforms, jd_brief, jd_requirements, jd_experience } = await req.json();
     if (!role) return NextResponse.json({ error: "role required" }, { status: 400 });
 
     const skillStr = (skills || []).slice(0, 3).join(" ");
@@ -151,23 +151,32 @@ export async function POST(req: NextRequest) {
     const parsed: Record<string, unknown>[] = [];
 
     if (withText.length > 0 && process.env.ANTHROPIC_API_KEY) {
-      for (const r of withText.slice(0, 6)) {
-        const prompt = `Extract a candidate profile from this page content. Return ONLY valid JSON, no markdown:
+      const jdContext = jd_requirements?.length
+      ? `\nJD role: ${role}\nJD requires: ${(jd_requirements as string[]).slice(0, 5).join("; ")}${jd_experience ? `\nJD experience: ${jd_experience}` : ""}`
+      : "";
+
+    for (const r of withText.slice(0, 6)) {
+        const prompt = `Extract a candidate profile from this page content.${jdContext}
+
+Return ONLY valid JSON, no markdown:
 {
   "full_name": "",
   "current_role": "",
   "current_company": "",
-  "total_experience": "",
-  "current_location": "",
-  "key_skills": "",
-  "profile_summary": "",
+  "total_experience": "<X years or null>",
+  "experience_years": <number or 0>,
+  "current_location": "<city, state or null>",
+  "key_skills": "<comma separated top skills>",
+  "skills": ["skill1","skill2","skill3"],
+  "profile_summary": "<1 sentence>",
+  "jd_relevance": "<X yrs relevant exp — key matching area, e.g. '4 yrs growth marketing' or null>",
   "linkedin_url": "${r.url.includes("linkedin") ? r.url : ""}",
   "source_url": "${r.url}"
 }
 
 Page: ${r.url}
 Content:
-${(r.pageText || "").slice(0, 1500)}
+${(r.pageText || "").slice(0, 1800)}
 
 If you cannot extract a real person's name, return null.`;
         try {
@@ -180,7 +189,18 @@ If you cannot extract a real person's name, return null.`;
           const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
           if (clean === "null") continue;
           const profile = JSON.parse(clean);
-          if (profile?.full_name) parsed.push({ ...profile, pageText: r.pageText });
+          if (profile?.full_name) parsed.push({
+            name: profile.full_name,
+            role: profile.current_role,
+            company: profile.current_company,
+            total_experience: profile.total_experience,
+            experience_years: profile.experience_years,
+            location: profile.current_location,
+            skills: profile.skills || (profile.key_skills ? String(profile.key_skills).split(",").map((s: string) => s.trim()) : []),
+            jd_relevance: profile.jd_relevance,
+            url: profile.linkedin_url || profile.source_url || r.url,
+            pageText: r.pageText,
+          });
         } catch { /* skip */ }
       }
     }

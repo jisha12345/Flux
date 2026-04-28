@@ -504,7 +504,7 @@ function RankingsPanel() {
   );
 }
 
-interface SearchedProfile { name?: string; role?: string; company?: string; skills?: string[]; location?: string; url: string; title?: string; snippet?: string; }
+interface SearchedProfile { name?: string; role?: string; company?: string; skills?: string[]; location?: string; url: string; title?: string; snippet?: string; total_experience?: string; experience_years?: number; jd_relevance?: string; pageText?: string; }
 
 function JDSearchPanel({ onImported }: { onImported: () => void }) {
   const [jds, setJDs] = useState<SavedJD[]>([]);
@@ -536,6 +536,8 @@ function JDSearchPanel({ onImported }: { onImported: () => void }) {
           location: jd.location || "India",
           platforms: activePlatforms,
           jd_brief: jd.about_role || "",
+          jd_requirements: jd.requirements || [],
+          jd_experience: jd.experience_range || "",
         }),
       });
       const data = await res.json();
@@ -615,17 +617,47 @@ function JDSearchPanel({ onImported }: { onImported: () => void }) {
             </button>
           </div>
           {results.map((r, i) => (
-            <div key={i} className="glass rounded-xl p-3 flex items-start gap-3">
-              <div className="flex-1 min-w-0">
-                <p className="text-white text-sm font-medium truncate">{r.name || r.title || r.url.split("/").pop()}</p>
-                {r.role && <p className="text-zinc-400 text-xs truncate">{r.role}{r.company ? ` · ${r.company}` : ""}</p>}
-                {r.skills?.length ? <p className="text-zinc-600 text-xs truncate mt-0.5">{r.skills.slice(0, 4).join(", ")}</p> : null}
-                <a href={r.url} target="_blank" rel="noopener noreferrer" className="text-zinc-700 text-xs truncate hover:text-zinc-500 transition-colors block mt-0.5">{r.url.replace("https://", "")}</a>
+            <div key={i} className="glass rounded-2xl p-4 space-y-2.5">
+              {/* Header row */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm font-semibold leading-snug">{r.name || r.title || r.url.split("/").pop()?.replace(/-/g, " ")}</p>
+                  <p className="text-zinc-400 text-xs mt-0.5 truncate">{[r.role, r.company].filter(Boolean).join(" · ") || "—"}</p>
+                </div>
+                <button onClick={() => importProfile(r)} disabled={importing.has(r.url) || imported.has(r.url)}
+                  className={`text-xs px-3 py-1.5 rounded-lg shrink-0 transition-all font-medium ${imported.has(r.url) ? "bg-green-500/15 text-green-400 border border-green-500/20" : "bg-violet-500/15 text-violet-300 border border-violet-500/20 hover:bg-violet-500/25 disabled:opacity-40"}`}>
+                  {imported.has(r.url) ? "✓ Added" : importing.has(r.url) ? "Importing..." : "Import"}
+                </button>
               </div>
-              <button onClick={() => importProfile(r)} disabled={importing.has(r.url) || imported.has(r.url)}
-                className={`text-xs px-3 py-1.5 rounded-lg shrink-0 transition-all ${imported.has(r.url) ? "bg-green-500/15 text-green-400 border border-green-500/20" : "glass text-zinc-400 hover:text-white disabled:opacity-40"}`}>
-                {imported.has(r.url) ? "✓ Added" : importing.has(r.url) ? "..." : "Import"}
-              </button>
+
+              {/* Data pills */}
+              <div className="flex flex-wrap gap-1.5">
+                {r.total_experience && (
+                  <span className="text-xs px-2 py-1 bg-white/5 border border-white/8 rounded-lg text-zinc-300">
+                    🕐 {r.total_experience} total
+                  </span>
+                )}
+                {r.jd_relevance && (
+                  <span className="text-xs px-2 py-1 bg-violet-500/10 border border-violet-500/20 rounded-lg text-violet-300">
+                    ✦ {r.jd_relevance}
+                  </span>
+                )}
+                {r.location && (
+                  <span className="text-xs px-2 py-1 bg-white/5 border border-white/8 rounded-lg text-zinc-400">
+                    📍 {r.location}
+                  </span>
+                )}
+              </div>
+
+              {/* Skills */}
+              {r.skills?.length ? (
+                <p className="text-zinc-600 text-xs truncate">{r.skills.slice(0, 5).join(" · ")}</p>
+              ) : null}
+
+              <a href={r.url} target="_blank" rel="noopener noreferrer"
+                className="text-zinc-700 text-[10px] truncate hover:text-zinc-500 transition-colors block">
+                {r.url.replace("https://www.", "").replace("https://", "")}
+              </a>
             </div>
           ))}
         </div>
@@ -966,10 +998,13 @@ export default function Dashboard() {
                     <Avatar name={c.full_name} />
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm text-white truncate">{c.full_name}</p>
-                      <p className="text-zinc-500 text-xs truncate mt-0.5">{c.current_role} · {c.current_company}</p>
-                      <div className="flex items-center gap-2 mt-1.5">
+                      <p className="text-zinc-400 text-xs truncate mt-0.5">{c.current_role} · {c.current_company}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        {c.total_experience && <span className="text-zinc-600 text-xs">{c.total_experience}y exp</span>}
+                        {c.current_location && <span className="text-zinc-700 text-xs truncate">· {c.current_location}</span>}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_STYLES[c.status || "new"]}`}>{c.status || "new"}</span>
-                        <span className="text-zinc-700 text-xs">{c.notice_period}</span>
                       </div>
                     </div>
                     <ScoreRing score={c.score || 0} />
