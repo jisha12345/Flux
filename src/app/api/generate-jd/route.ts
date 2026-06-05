@@ -1,48 +1,45 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAnthropic } from "@/lib/claude";
+import { NextRequest } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
 
-export async function POST(req: NextRequest) {
-  try {
-    const { brief } = await req.json();
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-    const message = await getAnthropic().messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 2048,
-      messages: [
-        {
-          role: "user",
-          content: `You are a talent acquisition expert at an AI-first company. Generate a compelling, modern job description based on this brief:
+export async function POST(request: NextRequest) {
+  const { prompt } = await request.json();
+  if (!prompt) return new Response("Missing prompt", { status: 400 });
 
-"${brief}"
+  const stream = anthropic.messages.stream({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 1500,
+    messages: [{
+      role: "user",
+      content: `Generate a compelling, well-structured job description for a tech role at Shiprocket (India's leading logistics platform) based on this: "${prompt}"
 
-The JD should feel energetic, honest, and attract people who love building with AI. Avoid corporate jargon.
+Include these sections with markdown headers:
+## About the Role
+## What You'll Do
+- 5-7 responsibility bullets
+## What We're Looking For
+- Must-have requirements
+- Nice-to-have
+## Why Join Shiprocket
+- 2-3 compelling reasons
 
-Respond with ONLY valid JSON, no markdown:
-{
-  "title": "<job title>",
-  "department": "<department>",
-  "location": "<location>",
-  "type": "<full-time|part-time|contract|internship>",
-  "experience_range": "<e.g. 3-6 years>",
-  "ctc_range": "<e.g. 20-35 LPA>",
-  "about_role": "<3-4 engaging sentences about the role>",
-  "responsibilities": ["<responsibility 1>", "..."],
-  "requirements": ["<requirement 1>", "..."],
-  "nice_to_have": ["<nice to have 1>", "..."],
-  "ai_expectations": "<1-2 sentences on how AI is used in this role>"
-}`,
-        },
-      ],
-    });
+Keep it sharp, specific, and appealing to top engineers. No fluff.`,
+    }],
+  });
 
-    const text = (message.content[0] as { type: string; text: string }).text;
-    // Strip markdown code fences if Claude wraps the JSON
-    const clean = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-    const jd = JSON.parse(clean);
+  const readable = new ReadableStream({
+    async start(controller) {
+      for await (const chunk of stream) {
+        if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
+          controller.enqueue(new TextEncoder().encode(chunk.delta.text));
+        }
+      }
+      controller.close();
+    },
+  });
 
-    return NextResponse.json({ success: true, jd });
-  } catch (err) {
-    console.error("JD generation error:", err);
-    return NextResponse.json({ error: String(err) }, { status: 500 });
-  }
+  return new Response(readable, {
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
 }

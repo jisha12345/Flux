@@ -1,22 +1,25 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
-const geist = Geist({ subsets: ["latin"] });
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+});
 
 export const metadata: Metadata = {
-  title: "Flux — Hiring for the AI era",
-  description: "Flux finds people who build with AI. Apply or hire.",
+  title: "Reqr — Hiring for the AI era",
+  description: "Reqr by Shiprocket — AI-powered tech recruiting platform",
 };
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${geist.className} bg-black text-white antialiased`}>
+    <html lang="en">
+      <body className={`${inter.className} antialiased`}>
         {children}
       </body>
     </html>

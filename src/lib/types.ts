@@ -1,56 +1,82 @@
-export interface CandidateApplication {
-  id?: string;
-  full_name: string;
-  email: string;
-  phone: string;
-  current_role: string;
-  current_company: string;
-  current_ctc: string;
-  expected_ctc: string;
-  notice_period: string;
-  current_location: string;
-  preferred_location: string;
-  wfh_preference: "remote" | "hybrid" | "office";
-  total_experience: string;
-  ai_comfort_score: string;
-  ai_tools_used: string;
-  ai_project_built: string;
-  ai_future_vision: string;
-  ai_without_tools_feeling: string;
-  biggest_build: string;
-  why_us: string;
-  portfolio_url: string;
-  linkedin_url: string;
-  github_url: string;
-  resume_url?: string;
-  score?: number;
-  score_breakdown?: ScoreBreakdown;
-  status?: "new" | "shortlisted" | "interview" | "offer" | "rejected";
-  created_at?: string;
-}
+export type JobStatus = "Applied" | "Shortlisted" | "Interview" | "Offer" | "Rejected";
 
-export interface ScoreBreakdown {
-  ai_depth: number;
-  communication: number;
-  experience_relevance: number;
-  ambition: number;
-  total: number;
-  summary: string;
-}
-
-export interface JobDescription {
-  id?: string;
+export interface Job {
+  id: string;
   title: string;
-  department: string;
+  company: string;
   location: string;
-  type: "full-time" | "part-time" | "contract" | "internship";
-  experience_range: string;
-  ctc_range: string;
-  about_role: string;
-  responsibilities: string[];
+  description: string;
   requirements: string[];
-  nice_to_have: string[];
-  ai_expectations: string;
-  created_at?: string;
-  is_active?: boolean;
+  skills: string[];
+  salary_range?: string;
+  created_at: string;
+  updated_at: string;
+  employer_id: string;
+  is_active: boolean;
+}
+
+export interface Candidate {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  linkedin_url?: string;
+  github_url?: string;
+  portfolio_url?: string;
+  resume_url?: string;
+  skills: string[];
+  experience_years?: number;
+  current_role?: string;
+  current_company?: string;
+  answers: Record<string, string>;
+  ai_score?: number;
+  ai_summary?: string;
+  ai_dimensions?: Record<string, number>;
+  status: JobStatus;
+  job_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Application {
+  id: string;
+  candidate_id: string;
+  job_id: string;
+  status: JobStatus;
+  ai_score?: number;
+  ai_summary?: string;
+  created_at: string;
+}
+
+export interface Employer {
+  id: string;
+  email: string;
+  company_name: string;
+  created_at: string;
+}
+
+export interface Assessment {
+  id: string;
+  job_id: string;
+  title: string;
+  questions: AssessmentQuestion[];
+  created_at: string;
+}
+
+export interface AssessmentQuestion {
+  id: string;
+  text: string;
+  type: "text" | "code" | "multiple_choice";
+  options?: string[];
+  correct_answer?: string;
+}
+
+export interface AssessmentSubmission {
+  id: string;
+  assessment_id: string;
+  candidate_id: string;
+  answers: Record<string, string>;
+  ai_score?: number;
+  ai_feedback?: string;
+  created_at: string;
 }
