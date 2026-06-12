@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Textarea } from "@/components/ui/textarea";
 
 const SHIPROCKET_ORANGE = "#F26522";
 
@@ -13,9 +15,52 @@ interface Job {
 }
 
 export default function TestsTab({ jobs }: { jobs: Job[] }) {
+  const router = useRouter();
   const [generating, setGenerating] = useState<string | null>(null);
   const [tests, setTests] = useState<Record<string, { id: string; title: string }>>({});
   const [copied, setCopied] = useState<string | null>(null);
+  const [jdMode, setJdMode] = useState<null | "paste" | "upload">(null);
+  const [jdText, setJdText] = useState("");
+  const [jdTitle, setJdTitle] = useState("");
+  const [jdSaving, setJdSaving] = useState(false);
+  const [jdUploading, setJdUploading] = useState(false);
+
+  async function handleJDUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setJdUploading(true);
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/upload-jd", { method: "POST", body: form });
+    const data = await res.json();
+    if (data.text) {
+      setJdText(data.text);
+      const firstLine = data.text.split("\n").find((l: string) => l.trim());
+      setJdTitle(firstLine?.replace(/^[#\-*\s]+/, "").slice(0, 80) ?? "");
+      setJdMode("paste");
+    }
+    setJdUploading(false);
+    e.target.value = "";
+  }
+
+  async function saveJD() {
+    if (!jdText.trim()) return;
+    setJdSaving(true);
+    try {
+      const title = jdTitle.trim() || "Job Description";
+      await fetch("/api/jd", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: jdText.trim(), title }),
+      });
+      setJdMode(null);
+      setJdText("");
+      setJdTitle("");
+      router.refresh();
+    } finally {
+      setJdSaving(false);
+    }
+  }
 
   async function generateTest(job: Job) {
     setGenerating(job.id);
@@ -54,11 +99,52 @@ export default function TestsTab({ jobs }: { jobs: Job[] }) {
       </div>
 
       {jobs.length === 0 ? (
-        <div className="bg-white rounded-xl border shadow-sm p-10 text-center">
-          <p className="text-gray-400 text-sm">Create a JD first to generate a screening test.</p>
-          <Link href="/employer/jd-builder" className="inline-block mt-3 px-4 py-2 text-white text-sm font-semibold rounded-xl" style={{ background: SHIPROCKET_ORANGE }}>
-            + New JD
-          </Link>
+        <div className="bg-white rounded-xl border shadow-sm p-8">
+          <p className="text-gray-400 text-sm text-center mb-5">No job description yet. Add one to get started.</p>
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <Link href="/employer/jd-builder" className="px-4 py-2 text-white text-sm font-semibold rounded-xl" style={{ background: SHIPROCKET_ORANGE }}>
+              Generate with AI
+            </Link>
+            <label className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-600 font-medium rounded-xl hover:border-gray-300 hover:bg-gray-50 text-sm cursor-pointer">
+              <span className="text-base leading-none">+</span>
+              <span>{jdUploading ? "Uploading…" : "Upload JD"}</span>
+              <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt" className="hidden" onChange={handleJDUpload} disabled={jdUploading} />
+            </label>
+            <button
+              onClick={() => setJdMode(jdMode === "paste" ? null : "paste")}
+              className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-600 font-medium rounded-xl hover:border-gray-300 hover:bg-gray-50 text-sm"
+            >
+              <span className="text-base leading-none">+</span>
+              <span>Paste JD</span>
+            </button>
+          </div>
+
+          {jdMode === "paste" && (
+            <div className="mt-5 space-y-3">
+              <input
+                type="text"
+                value={jdTitle}
+                onChange={e => setJdTitle(e.target.value)}
+                placeholder="Job title (e.g. Senior Backend Engineer)"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
+              />
+              <Textarea
+                value={jdText}
+                onChange={e => setJdText(e.target.value)}
+                placeholder="Paste your job description here…"
+                className="min-h-[180px] border-gray-200 rounded-xl text-sm"
+                autoFocus
+              />
+              <button
+                onClick={saveJD}
+                disabled={jdSaving || !jdText.trim()}
+                className="px-5 py-2 text-white font-semibold rounded-xl disabled:opacity-40 hover:opacity-90 transition-all text-sm"
+                style={{ background: SHIPROCKET_ORANGE }}
+              >
+                {jdSaving ? "Saving…" : "Save JD"}
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         jobs.map(job => {

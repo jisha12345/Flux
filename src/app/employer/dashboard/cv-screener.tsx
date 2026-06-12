@@ -1,9 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+
+const OR = "#F26522";
 
 interface Job {
   id: string;
@@ -22,7 +25,12 @@ interface ScreenResult {
   strengths: string[];
   gaps: string[];
   recommendation: "Strong yes" | "Yes" | "Maybe" | "No";
-  twentyTwoCallTriggered?: boolean;
+}
+
+interface CallTarget {
+  name: string;
+  phone: string;
+  fromCVResult?: boolean;
 }
 
 export default function CVScreener({ jobs }: { jobs: Job[] }) {
@@ -31,14 +39,25 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
   const [result, setResult] = useState<ScreenResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Twenty2 modal
+  const [callModalOpen, setCallModalOpen] = useState(false);
+  const [callTarget, setCallTarget] = useState<CallTarget>({ name: "", phone: "" });
   const [callingAI, setCallingAI] = useState(false);
   const [callTriggered, setCallTriggered] = useState(false);
+
+  function openCallModal(prefill?: Partial<CallTarget>) {
+    setCallTarget({ name: prefill?.name ?? "", phone: prefill?.phone ?? "" });
+    setCallTriggered(false);
+    setCallModalOpen(true);
+  }
 
   async function screen() {
     if (!file || !selectedJob) return;
     setLoading(true);
     setError("");
     setResult(null);
+    setCallTriggered(false);
 
     const form = new FormData();
     form.append("cv", file);
@@ -56,18 +75,32 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
   }
 
   async function triggerVoiceScreen() {
-    if (!result?.phone) return;
+    if (!callTarget.phone.trim()) return;
     setCallingAI(true);
-    await fetch("/api/twenty2-call", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone: result.phone, candidate_name: result.name, job_id: selectedJob }),
-    });
-    setCallTriggered(true);
-    setCallingAI(false);
+    try {
+      await fetch("/api/twenty2-call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: callTarget.phone,
+          candidate_name: callTarget.name,
+          job_id: selectedJob,
+          cv_result: callTarget.fromCVResult ? result : undefined,
+        }),
+      });
+      setCallTriggered(true);
+    } finally {
+      setCallingAI(false);
+    }
   }
 
-  const recommendationColor = {
+  function resetForm() {
+    setResult(null);
+    setFile(null);
+    setCallTriggered(false);
+  }
+
+  const recommendationColor: Record<string, string> = {
     "Strong yes": "text-green-600",
     "Yes": "text-blue-600",
     "Maybe": "text-yellow-600",
@@ -76,23 +109,105 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
 
   return (
     <div className="space-y-6">
+      {/* Twenty2 call modal */}
+      {callModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={e => { if (e.target === e.currentTarget) setCallModalOpen(false); }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <p className="font-semibold text-gray-900">Schedule AI Voice Screen</p>
+                <p className="text-xs text-gray-400 mt-0.5">Automated telephonic screening via Twenty2</p>
+              </div>
+              <button
+                onClick={() => setCallModalOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500 transition-colors text-xl leading-none"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1.5">Candidate name</label>
+                <input
+                  type="text"
+                  value={callTarget.name}
+                  onChange={e => setCallTarget(t => ({ ...t, name: e.target.value }))}
+                  placeholder="Full name"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1.5">Phone number</label>
+                <input
+                  type="tel"
+                  value={callTarget.phone}
+                  onChange={e => setCallTarget(t => ({ ...t, phone: e.target.value }))}
+                  placeholder="+91 XXXXXXXXXX"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                />
+              </div>
+              {callTriggered ? (
+                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                  <span className="text-green-700 text-sm font-medium">✓ AI screening call scheduled</span>
+                  <button onClick={() => setCallModalOpen(false)} className="text-xs text-green-600 hover:underline">Close</button>
+                </div>
+              ) : (
+                <button
+                  onClick={triggerVoiceScreen}
+                  disabled={callingAI || !callTarget.phone.trim()}
+                  className="w-full py-2.5 text-white font-semibold rounded-xl disabled:opacity-40 hover:opacity-90 transition-all text-sm"
+                  style={{ background: OR }}
+                >
+                  {callingAI ? "Scheduling…" : "Schedule AI Call →"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-lg border p-6">
-        <h2 className="font-semibold mb-4">Screen a CV</h2>
+        <div className="flex items-start justify-between mb-4">
+          <h2 className="font-semibold">Screen a CV</h2>
+          <button
+            onClick={() => openCallModal()}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl hover:opacity-90 transition-all"
+            style={{ background: "rgba(242,101,34,0.08)", color: OR }}
+          >
+            📞 Telephonic screen
+          </button>
+        </div>
         <p className="text-sm text-muted-foreground mb-6">Upload a PDF or Word document. AI will parse and score it against the selected job description.</p>
 
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
             <label className="text-sm font-medium block mb-1">Job description</label>
-            <select
-              value={selectedJob}
-              onChange={e => setSelectedJob(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              {jobs.map(j => (
-                <option key={j.id} value={j.id}>{j.title}</option>
-              ))}
-              {jobs.length === 0 && <option value="">No jobs — create one first</option>}
-            </select>
+            {jobs.length === 0 ? (
+              <div className="border border-dashed border-gray-200 rounded-md px-4 py-4 flex flex-col items-start gap-2">
+                <p className="text-xs text-gray-400">No saved JD yet.</p>
+                <Link
+                  href="/employer/jd-builder"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-semibold rounded-lg hover:opacity-90 transition-all"
+                  style={{ background: OR }}
+                >
+                  + Create a JD
+                </Link>
+              </div>
+            ) : (
+              <select
+                value={selectedJob}
+                onChange={e => setSelectedJob(e.target.value)}
+                className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                {jobs.map(j => (
+                  <option key={j.id} value={j.id}>{j.title}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div>
@@ -123,7 +238,7 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
             </div>
             <div className="text-right">
               <p className="text-3xl font-bold">{result.score}<span className="text-lg text-muted-foreground">/100</span></p>
-              <p className={`text-sm font-semibold mt-1 ${recommendationColor[result.recommendation]}`}>
+              <p className={`text-sm font-semibold mt-1 ${recommendationColor[result.recommendation] ?? ""}`}>
                 {result.recommendation}
               </p>
             </div>
@@ -139,7 +254,7 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
             <div className="space-y-2">
               {Object.entries(result.dimensions).map(([dim, score]) => (
                 <div key={dim} className="flex items-center gap-3">
-                  <span className="text-sm w-32 capitalize">{dim.replace(/_/g, " ")}</span>
+                  <span className="text-sm w-36 capitalize">{dim.replace(/_/g, " ")}</span>
                   <Progress value={score} className="flex-1 h-2" />
                   <span className="text-sm font-medium w-8 text-right">{score}</span>
                 </div>
@@ -162,18 +277,30 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
             </div>
           </div>
 
-          <div className="flex gap-3 pt-2 border-t">
-            {result.phone && !callTriggered && (
-              <Button variant="outline" onClick={triggerVoiceScreen} disabled={callingAI}>
-                {callingAI ? "Scheduling call…" : "AI Voice Screen (Twenty2)"}
-              </Button>
-            )}
-            {callTriggered && (
+          <div className="flex flex-wrap gap-3 pt-2 border-t">
+            {callTriggered ? (
               <Badge variant="default" className="bg-green-600">AI call scheduled ✓</Badge>
+            ) : (
+              <button
+                onClick={() => openCallModal({ name: result.name, phone: result.phone, fromCVResult: true })}
+                className="flex items-center gap-2 px-4 py-2 text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-all shadow-sm"
+                style={{ background: OR }}
+              >
+                📞 Schedule AI Voice Screen
+              </button>
             )}
-            <Button variant="outline" onClick={() => { setResult(null); setFile(null); }}>
-              Screen another
+            <Button
+              variant="outline"
+              onClick={resetForm}
+            >
+              Screen another CV
             </Button>
+            <button
+              onClick={() => openCallModal()}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-200 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-50 transition-all"
+            >
+              📞 New telephonic screen
+            </button>
           </div>
         </div>
       )}

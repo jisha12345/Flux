@@ -1,7 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { anthropic } from "@/lib/claude";
 import { createServerSupabaseClient } from "@/lib/supabase";
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+const ANALYSIS_PROMPT = (jobContext: string, cvText: string) => `You are a senior technical recruiter screening a CV against a job description.
+
+JOB DESCRIPTION:
+${jobContext}
+
+CANDIDATE CV:
+${cvText}
+
+Evaluate this candidate and respond with ONLY a JSON object — no preamble:
+{
+  "name": "candidate full name",
+  "email": "email if found or null",
+  "phone": "phone if found or null",
+  "current_role": "current job title and company",
+  "score": <0-100 overall fit>,
+  "summary": "2-3 sentence recruiter summary vs this role",
+  "dimensions": {
+    "technical_depth": <0-100>,
+    "ai_fluency": <0-100>,
+    "experience_relevance": <0-100>,
+    "impact_clarity": <0-100>,
+    "growth_trajectory": <0-100>
+  },
+  "strengths": ["strength 1", "strength 2", "strength 3"],
+  "gaps": ["gap 1", "gap 2"],
+  "recommendation": "Strong yes" | "Yes" | "Maybe" | "No"
+}
+
+impact_clarity: score how well the CV demonstrates measurable outcomes and ownership (quantified achievements, scope of projects, promotions).`;
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,72 +50,42 @@ export async function POST(request: NextRequest) {
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    const base64 = buffer.toString("base64");
-
     const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
     const isDocx = file.name.toLowerCase().endsWith(".docx") ||
       file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-    let cvText = "";
+    let response: Anthropic.Message;
 
     if (isPdf) {
-      const docBlock: Anthropic.DocumentBlockParam = {
-        type: "document",
-        source: { type: "base64", media_type: "application/pdf", data: base64 },
-      };
-      const textBlock: Anthropic.TextBlockParam = {
-        type: "text",
-        text: "Extract all text from this CV/resume document. Return only the raw extracted text.",
-      };
-      const response = await anthropic.messages.create({
-        model: "claude-sonnet-4-6",
+      // Single call — pass PDF document block directly into analysis prompt
+      response = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
-        messages: [{ role: "user", content: [docBlock, textBlock] }],
+        messages: [{
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: { type: "base64", media_type: "application/pdf", data: buffer.toString("base64") },
+            } as Anthropic.DocumentBlockParam,
+            { type: "text", text: ANALYSIS_PROMPT(jobContext, "[see attached CV document above]") },
+          ],
+        }],
       });
-      cvText = response.content[0].type === "text" ? response.content[0].text : "";
-    } else if (isDocx) {
-      const mammoth = await import("mammoth");
-      const result = await mammoth.extractRawText({ buffer });
-      cvText = result.value;
     } else {
-      // Try to read as text
-      cvText = buffer.toString("utf-8");
+      let cvText = "";
+      if (isDocx) {
+        const mammoth = await import("mammoth");
+        cvText = (await mammoth.extractRawText({ buffer })).value;
+      } else {
+        cvText = buffer.toString("utf-8");
+      }
+      response = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: ANALYSIS_PROMPT(jobContext, cvText) }],
+      });
     }
-
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 2048,
-      messages: [{
-        role: "user",
-        content: `You are a senior technical recruiter screening a CV against a job description.
-
-JOB DESCRIPTION:
-${jobContext}
-
-CANDIDATE CV:
-${cvText}
-
-Evaluate this candidate and respond with a JSON object:
-{
-  "name": "candidate full name",
-  "email": "email if found",
-  "phone": "phone if found",
-  "current_role": "current job title and company",
-  "score": <0-100 overall fit score>,
-  "summary": "2-3 sentence recruiter summary of the candidate vs this role",
-  "dimensions": {
-    "technical_depth": <0-100>,
-    "ai_fluency": <0-100>,
-    "experience_relevance": <0-100>,
-    "communication": <0-100>,
-    "growth_trajectory": <0-100>
-  },
-  "strengths": ["strength 1", "strength 2", "strength 3"],
-  "gaps": ["gap 1", "gap 2"],
-  "recommendation": "Strong yes" | "Yes" | "Maybe" | "No"
-}`,
-      }],
-    });
 
     const text = response.content[0].type === "text" ? response.content[0].text : "";
     const result = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? "{}");

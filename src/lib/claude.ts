@@ -56,8 +56,8 @@ Format as clean markdown.`,
 
 export async function generateAssessment(jobDescription: string): Promise<{ title: string; questions: Array<{ id: string; text: string; type: string }> }> {
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 2048,
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 800,
     messages: [
       {
         role: "user",

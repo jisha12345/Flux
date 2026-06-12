@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     const supabase = await createServerSupabaseClient();
     const { data, error } = await supabase
       .from("assessments")
-      .insert({ job_id, title: assessment.title, questions: assessment.questions })
+      .insert({ job_id, title: assessment.title, questions: assessment.questions, time_limit_minutes: 10 })
       .select()
       .single();
 

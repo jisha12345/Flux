@@ -11,7 +11,7 @@ export default async function DashboardPage() {
   const service = createServiceClient();
   const [candResult, jobsResult] = await Promise.all([
     service.from("candidates").select("*").order("score", { ascending: false, nullsFirst: false }).range(0, 499),
-    service.from("jobs").select("*").order("created_at", { ascending: false }),
+    supabase.from("jobs").select("*").order("created_at", { ascending: false }),
   ]);
 
   return (

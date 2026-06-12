@@ -190,8 +190,8 @@ export default function AssessmentPage() {
           </div>
         </div>
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">{assessment.title}</h1>
-          <p className="text-gray-400 text-sm">{assessment.questions.length} questions · Answer honestly · {assessment.time_limit_minutes ?? 10} minutes</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2" style={{ fontFamily: "var(--font-jakarta, inherit)" }}>{assessment.title}</h1>
+          <p className="text-gray-400 text-sm">{assessment.questions.length} questions · {assessment.time_limit_minutes ?? 10} min time limit</p>
         </div>
         <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 space-y-2">
           <p className="text-sm font-semibold text-orange-900">Integrity monitoring is active</p>
@@ -266,18 +266,24 @@ export default function AssessmentPage() {
       <div className="flex-1 flex items-center justify-center px-4 sm:px-8 py-10">
         <div className="w-full max-w-xl space-y-8">
           <div className="space-y-3">
-            <p className="text-gray-400 text-xs font-mono">{String(step + 1).padStart(2, "0")} / {assessment.questions.length}</p>
-            <h2 className="text-2xl sm:text-3xl font-semibold leading-snug text-gray-900">{current.text}</h2>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-bold" style={{ background: "rgba(242,101,34,0.1)", color: SHIPROCKET_ORANGE }}>
+                {step + 1}
+              </span>
+              <span className="text-gray-400 text-xs">of {assessment.questions.length}</span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-semibold leading-snug text-gray-900" style={{ fontFamily: "var(--font-jakarta, inherit)", letterSpacing: "-0.01em" }}>{current.text}</h2>
           </div>
 
           <textarea
             autoFocus
             value={answers[current.id] ?? ""}
             onChange={e => setAnswers({ ...answers, [current.id]: e.target.value })}
-            placeholder="Your answer…"
-            rows={5}
-            className="w-full bg-white border border-gray-200 rounded-2xl px-4 py-3.5 text-gray-900 placeholder-gray-400 outline-none text-base resize-none"
-            onFocus={e => { e.currentTarget.style.borderColor = SHIPROCKET_ORANGE; e.currentTarget.style.boxShadow = "0 0 0 4px rgba(242,101,34,0.1)"; }}
+            placeholder="Type your answer here…"
+            rows={6}
+            className="w-full bg-white border border-gray-200 rounded-2xl px-5 py-4 text-gray-900 placeholder-gray-300 outline-none text-[15px] leading-relaxed resize-none shadow-sm"
+            style={{ fontFamily: "var(--font-inter, inherit)" }}
+            onFocus={e => { e.currentTarget.style.borderColor = SHIPROCKET_ORANGE; e.currentTarget.style.boxShadow = "0 0 0 4px rgba(242,101,34,0.08)"; }}
             onBlur={e => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.boxShadow = "none"; }}
           />
 

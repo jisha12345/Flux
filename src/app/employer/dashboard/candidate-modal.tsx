@@ -4,6 +4,28 @@ import { useState } from "react";
 
 const SHIPROCKET_ORANGE = "#F26522";
 
+interface VoiceScreenSummary {
+  combined_score?: number;
+  recommendation?: string;
+  call_summary?: string;
+  cv_vs_call?: string;
+  highlights?: string[];
+  red_flags?: string[];
+  next_step?: string;
+}
+
+interface VoiceScreen {
+  status?: "pending" | "completed";
+  triggered_at?: string;
+  completed_at?: string;
+  duration_seconds?: number;
+  recording_url?: string;
+  transcript_url?: string;
+  transcript_text?: string;
+  output_variables?: Record<string, string>;
+  ai_summary?: VoiceScreenSummary;
+}
+
 interface Candidate {
   id: string;
   full_name?: string;
@@ -26,9 +48,11 @@ interface Candidate {
   github_url?: string;
   naukri_url?: string;
   score?: number;
+  ai_score?: number;
   ai_comfort_score?: string;
   ai_tools_used?: string;
   status: string;
+  voice_screen?: VoiceScreen;
 }
 
 interface Analysis {
@@ -187,6 +211,97 @@ export default function CandidateModal({ candidate, onClose, onStatusChange }: P
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">AI Usage</p>
               {c.ai_comfort_score && <p className="text-sm text-gray-700">Comfort: <span className="font-medium">{c.ai_comfort_score}</span></p>}
               {c.ai_tools_used && <p className="text-sm text-gray-700 mt-1">{c.ai_tools_used}</p>}
+            </div>
+          )}
+
+          {/* Voice Screen Results */}
+          {c.voice_screen && (
+            <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <div className="px-4 py-3 flex items-center justify-between" style={{ background: "rgba(242,101,34,0.06)" }}>
+                <div className="flex items-center gap-2">
+                  <span>📞</span>
+                  <p className="text-sm font-semibold text-gray-900">AI Voice Screen</p>
+                </div>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${c.voice_screen.status === "completed" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
+                  {c.voice_screen.status === "completed" ? "Completed" : "Pending call…"}
+                </span>
+              </div>
+
+              {c.voice_screen.status === "completed" && (
+                <div className="p-4 space-y-4">
+                  {c.voice_screen.duration_seconds && (
+                    <p className="text-xs text-gray-500">Call duration: {Math.floor(c.voice_screen.duration_seconds / 60)}m {c.voice_screen.duration_seconds % 60}s</p>
+                  )}
+
+                  {c.voice_screen.ai_summary ? (
+                    <div className="space-y-3">
+                      {c.voice_screen.ai_summary.combined_score !== undefined && (
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl font-bold" style={{ color: SHIPROCKET_ORANGE }}>{c.voice_screen.ai_summary.combined_score}<span className="text-sm text-gray-400 font-normal">/100</span></span>
+                          {c.voice_screen.ai_summary.recommendation && (
+                            <span className="text-sm font-semibold text-gray-700">{c.voice_screen.ai_summary.recommendation}</span>
+                          )}
+                        </div>
+                      )}
+                      {c.voice_screen.ai_summary.call_summary && (
+                        <div className="bg-gray-50 rounded-lg p-3">
+                          <p className="text-xs font-semibold text-gray-500 mb-1">Call Summary</p>
+                          <p className="text-sm text-gray-700">{c.voice_screen.ai_summary.call_summary}</p>
+                        </div>
+                      )}
+                      {c.voice_screen.ai_summary.cv_vs_call && (
+                        <div className="bg-blue-50 rounded-lg p-3">
+                          <p className="text-xs font-semibold text-blue-600 mb-1">CV vs Call Alignment</p>
+                          <p className="text-sm text-blue-800">{c.voice_screen.ai_summary.cv_vs_call}</p>
+                        </div>
+                      )}
+                      {(c.voice_screen.ai_summary.highlights?.length ?? 0) > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-gray-500 mb-1.5">Highlights</p>
+                          <ul className="space-y-1">
+                            {c.voice_screen.ai_summary.highlights!.map((h, i) => (
+                              <li key={i} className="text-sm text-gray-700 flex gap-2"><span className="text-green-500">✓</span>{h}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {(c.voice_screen.ai_summary.red_flags?.length ?? 0) > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-gray-500 mb-1.5">Red Flags</p>
+                          <ul className="space-y-1">
+                            {c.voice_screen.ai_summary.red_flags!.map((f, i) => (
+                              <li key={i} className="text-sm text-red-600 flex gap-2"><span>⚠</span>{f}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {c.voice_screen.ai_summary.next_step && (
+                        <div className="bg-orange-50 rounded-lg p-3 border border-orange-100">
+                          <p className="text-xs font-semibold text-orange-600 mb-1">Recommended Next Step</p>
+                          <p className="text-sm text-orange-800">{c.voice_screen.ai_summary.next_step}</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400">Call completed — AI summary processing.</p>
+                  )}
+
+                  <div className="flex gap-2 pt-1">
+                    {c.voice_screen.recording_url && (
+                      <a href={c.voice_screen.recording_url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">
+                        🎙 Listen to recording
+                      </a>
+                    )}
+                    {c.voice_screen.transcript_url && (
+                      <a href={c.voice_screen.transcript_url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">
+                        📄 View transcript
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
