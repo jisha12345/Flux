@@ -1,12 +1,16 @@
 /**
  * One live AI interview over a single WebSocket.
  *
- * Browser sends 16 kHz PCM16LE frames whenever the mic is live; a server-side
- * energy VAD converts them into speech_start/audio/speech_end, STT flushes on
- * speech_end, Claude streams the interviewer's reply, a sentence chunker feeds
- * streaming TTS, and PCM flows back down the same socket. Orchestration
- * (turnId guards, barge-in socket drops, prewarming) follows rocketizer-mono's
- * VoiceStreamSession.
+ * The mic is **push-to-talk**: the browser sends `mic_open`, streams 16 kHz
+ * PCM16LE while the candidate holds the floor, then sends `mic_close`. Only then
+ * does STT flush, Claude stream the interviewer's reply, a sentence chunker feed
+ * streaming TTS, and PCM flow back down the same socket.
+ *
+ * There is deliberately NO voice-activity detection. The earlier energy-VAD
+ * build let room noise (and the interviewer's own TTS leaking back through the
+ * candidate's speakers) open a "turn", which cancelled the question that was
+ * still being generated — so the interviewer would sometimes never ask anything.
+ * A turn now starts and ends only on an explicit tap.
  */
 import type WebSocket from "ws";
 import { SttStreamSession, TtsStreamSession } from "./audio-stream.js";
@@ -18,7 +22,7 @@ import {
   type HistoryMessage,
 } from "./interview-engine.js";
 import { evaluateInterview } from "./evaluate.js";
-import { PcmVoiceActivityDetector } from "./pcm-vad.js";
+import { pcm16LeRms } from "./pcm-vad.js";
 import { insertTurn, loadTurns, updateInterview } from "./supabase.js";
 import { cleanForTts, SentenceChunker } from "./voice-chunker.js";
 import type { AiInterviewRow } from "./types.js";
@@ -26,21 +30,25 @@ import type { AiInterviewRow } from "./types.js";
 const WS_OPEN = 1;
 
 /** How long a candidate can sit silent before a gentle nudge (once per question). */
-const SILENCE_NUDGE_MS = 18_000;
+const SILENCE_NUDGE_MS = 25_000;
 /** Minutes past the planned duration before we force the wrap-up. */
 const OVERTIME_WRAP_MIN = 3;
 /** Absolute ceiling past planned duration — hard-complete the interview. */
 const OVERTIME_HARD_MIN = 10;
 
+/** Raw int16 RMS above which a mic frame counts as "someone actually spoke". */
+const VOICED_RMS = 500;
+/** Frames (~32 ms each) of voiced audio needed before we bother flushing STT. */
+const MIN_VOICED_FRAMES = 6;
+
 const NUDGE_LINES: Record<string, string> = {
-  "en-IN": "Take your time. If it helps, I can repeat the question.",
-  "hi-IN": "आराम से सोचिए। चाहें तो मैं सवाल दोहरा सकती हूँ।",
+  "en-IN": "Take your time. Tap the speak button when you're ready — or I can repeat the question.",
+  "hi-IN": "आराम से सोचिए। जब तैयार हों तो बोलने वाला बटन दबाइए — या मैं सवाल दोहरा सकती हूँ।",
 };
 
 export class InterviewSession {
   private readonly stt: SttStreamSession;
   private tts: TtsStreamSession | null = null;
-  private readonly vad: PcmVoiceActivityDetector;
 
   private history: HistoryMessage[] = [];
   private system = "";
@@ -52,6 +60,9 @@ export class InterviewSession {
   private started = false;
   private completed = false;
   private closed = false;
+
+  private micOpen = false;
+  private voicedFrames = 0;
 
   private sectionIndex = -1;
   private startedAtMs = 0;
@@ -69,16 +80,6 @@ export class InterviewSession {
     this.stt = new SttStreamSession(row.language, {
       onTranscript: (text) => this.updateTranscriptPreview(text),
     });
-    this.vad = new PcmVoiceActivityDetector(
-      // ~0.02 full-scale on int16; 3×32 ms frames to confirm onset; 800 ms of
-      // trailing silence ends the utterance (interview answers pause a lot).
-      { rmsThreshold: 650, startFrames: 3, silenceMs: 800, preRollMs: 240 },
-      {
-        onSpeechStart: () => this.onSpeechStart(),
-        onAudio: (pcm) => this.stt.sendPcm(pcm),
-        onSpeechEnd: () => this.onSpeechEnd(),
-      },
-    );
   }
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
@@ -139,23 +140,25 @@ export class InterviewSession {
       case "start":
         this.handleStart();
         return;
+      case "mic_open":
+        this.openMic();
+        return;
       case "audio": {
-        if (typeof msg.data !== "string" || this.completed) return;
+        // Nothing is listened to unless the candidate is holding the floor.
+        if (!this.micOpen || typeof msg.data !== "string" || this.completed) return;
         let pcm: Uint8Array;
         try {
           pcm = new Uint8Array(Buffer.from(msg.data, "base64"));
         } catch {
           return;
         }
-        this.vad.process(pcm);
+        if (pcm.byteLength < 2) return;
+        if (pcm16LeRms(pcm) >= VOICED_RMS) this.voicedFrames += 1;
+        this.stt.sendPcm(pcm);
         return;
       }
-      case "barge_in":
-        this.cancelTurn();
-        this.vad.reset();
-        this.spawn(this.ensureTts());
-        this.send({ type: "status", data: "listening" });
-        this.armSilenceTimer();
+      case "mic_close":
+        this.closeMic();
         return;
       case "repeat":
         this.handleRepeat();
@@ -176,6 +179,7 @@ export class InterviewSession {
 
   teardown(): void {
     this.closed = true;
+    this.micOpen = false;
     this.cancelTurn();
     this.clearSilenceTimer();
     this.stt.close();
@@ -186,17 +190,42 @@ export class InterviewSession {
     // via POST /evaluate/:token.
   }
 
-  // ── mic lifecycle ─────────────────────────────────────────────────────────
+  // ── mic lifecycle (push-to-talk) ──────────────────────────────────────────
 
-  private onSpeechStart(): void {
+  /** Candidate tapped "speak". Takes the floor — including from the interviewer. */
+  private openMic(): void {
+    if (this.completed || this.micOpen) return;
     this.clearSilenceTimer();
-    if (this.turnActive) this.cancelTurn(); // server-side barge-in safety net
+    // A tap during the question is a deliberate interruption, never an accident.
+    if (this.turnActive) this.cancelTurn();
+    this.micOpen = true;
+    this.voicedFrames = 0;
     this.transcriptPreview = "";
     this.stt.reset();
+    this.spawn(this.stt.prewarm()); // the socket may have gone idle between turns
+    this.spawn(this.ensureTts());
+    this.send({ type: "status", data: "listening" });
   }
 
-  private onSpeechEnd(): void {
-    // Off the receive loop so the STT flush cannot block incoming media.
+  /** Candidate tapped "send". Finalize the utterance and answer it. */
+  private closeMic(): void {
+    if (!this.micOpen) return;
+    this.micOpen = false;
+    if (this.completed) return;
+
+    if (this.voicedFrames < MIN_VOICED_FRAMES) {
+      // Empty tap (mis-tap, muted mic, hardware trouble) — never send it to the
+      // model as a turn; nudging the candidate to retry is the honest response.
+      this.stt.reset();
+      this.transcriptPreview = "";
+      this.send({ type: "no_speech" });
+      this.send({ type: "status", data: "listening" });
+      this.armSilenceTimer();
+      return;
+    }
+
+    this.send({ type: "status", data: "thinking" });
+    // Off the receive loop so the STT flush cannot block incoming frames.
     this.spawn(this.finalizeAndRespond());
   }
 
@@ -207,16 +236,18 @@ export class InterviewSession {
     } catch {
       transcript = "";
     }
-    if (this.completed) return;
+    if (this.completed || this.micOpen) return; // mic re-opened while flushing
     if (transcript) {
       this.beginTurn(transcript);
     } else {
+      this.send({ type: "no_speech" });
       this.send({ type: "status", data: "listening" });
       this.armSilenceTimer();
     }
   }
 
   private updateTranscriptPreview(rawText: string): void {
+    if (!this.micOpen) return; // stale segment from a finished utterance
     const text = rawText.replace(/\s+/g, " ").trim();
     if (!text) return;
     if (!this.transcriptPreview) {
@@ -248,7 +279,7 @@ export class InterviewSession {
   }
 
   private handleRepeat(): void {
-    if (!this.lastQuestion || this.turnActive || this.completed) return;
+    if (!this.lastQuestion || this.turnActive || this.micOpen || this.completed) return;
     const line = cleanForTts(this.lastQuestion);
     if (line) this.spawn(this.speakLine(line));
   }
@@ -264,15 +295,17 @@ export class InterviewSession {
     this.spawn(this.currentTurn);
   }
 
-  /** Stop the active turn's audio. The LLM stream has no hard-cancel here; a
-   *  superseded turn finishes in the background and its late tokens/audio are
-   *  dropped via the turnId + audioOpen guards. */
+  /** Stop the active turn's audio. The LLM stream has no hard-cancel here, so we
+   *  orphan the turn by bumping turnId: every emit path in runTurn re-checks it,
+   *  and a dropped TtsStreamSession's audio is discarded by the ownership check
+   *  in ensureTts. Late tokens from the superseded turn therefore go nowhere. */
   private cancelTurn(): void {
     if (this.turnActive) {
       this.turnActive = false;
       this.send({ type: "interrupted" });
     }
     this.audioOpen = false;
+    this.turnId += 1;
     if (this.tts && this.tts.busy) {
       this.tts.reset();
       this.tts = null;
@@ -325,7 +358,11 @@ export class InterviewSession {
       const cleaned = cleanForTts(rawSentence);
       if (!cleaned) return;
       const tts = this.tts;
-      if (tts) speakChain = speakChain.then(() => tts.speak(cleaned)).catch(() => {});
+      if (tts) {
+        speakChain = speakChain
+          .then(() => (myTurn === this.turnId ? tts.speak(cleaned) : undefined))
+          .catch(() => {});
+      }
       if (!spoke) {
         spoke = true;
         this.send({ type: "status", data: "speaking" });
@@ -384,17 +421,19 @@ export class InterviewSession {
     void insertTurn(this.row.id, seq, "interviewer", cleanText, this.currentSectionId()).catch(() => {});
 
     await speakChain;
-    if (spoke && this.tts) {
+    if (spoke && this.tts && myTurn === this.turnId) {
       try {
         await this.tts.flushAndWait();
       } catch {
         /* socket dropped / timed out — audio already delivered */
       }
     }
+    // Only the still-current turn owns `this.tts`; a superseded one must not
+    // null out the session the new turn is already speaking through.
+    if (myTurn !== this.turnId) return;
     this.tts = null;
     this.spawn(this.ensureTts()); // prewarm for the next turn
 
-    if (myTurn !== this.turnId) return;
     this.turnActive = false;
     this.audioOpen = false;
     this.send({ type: "audio_done" });
@@ -475,9 +514,9 @@ export class InterviewSession {
 
   private armSilenceTimer(): void {
     this.clearSilenceTimer();
-    if (this.completed || !this.started || this.nudgedThisQuestion) return;
+    if (this.completed || !this.started || this.nudgedThisQuestion || this.micOpen) return;
     this.silenceTimer = setTimeout(() => {
-      if (this.turnActive || this.vad.isSpeaking || this.completed) return;
+      if (this.turnActive || this.micOpen || this.completed) return;
       this.nudgedThisQuestion = true;
       const line = NUDGE_LINES[this.row.language] ?? NUDGE_LINES["en-IN"];
       this.spawn(this.speakLine(line));
@@ -496,7 +535,12 @@ export class InterviewSession {
   private ensureTts(): Promise<void> {
     if (this.tts) return Promise.resolve();
     const tts = new TtsStreamSession(this.row.language, {
-      onAudio: (pcm, rate) => this.emitAudio(pcm, rate),
+      // Ownership check: an orphaned session (barge-in, superseded turn) can
+      // still reconnect on a queued speak() — its audio must never reach the
+      // candidate mid-way through the next question.
+      onAudio: (pcm, rate) => {
+        if (this.tts === tts) this.emitAudio(pcm, rate);
+      },
     });
     this.tts = tts;
     return tts.prewarm();

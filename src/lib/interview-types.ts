@@ -178,11 +178,19 @@ export interface AiInterviewRow {
 // ── Gateway WebSocket protocol ──────────────────────────────────────────────
 // Connect: `${NEXT_PUBLIC_INTERVIEW_GATEWAY_URL.replace(/^http/, "ws")}/ws?token=<token>`
 
-/** Browser → gateway (JSON text frames). Audio is base64 PCM16LE mono @ 16 kHz. */
+/**
+ * Browser → gateway (JSON text frames). Audio is base64 PCM16LE mono @ 16 kHz.
+ *
+ * The mic is push-to-talk: the candidate taps to speak, so `audio` frames only
+ * flow between `mic_open` and `mic_close`. There is no voice-activity detection
+ * anywhere in the pipeline — a turn ends when (and only when) the candidate says
+ * it does.
+ */
 export type InterviewClientFrame =
   | { type: "start" }
+  | { type: "mic_open" }
   | { type: "audio"; data: string }
-  | { type: "barge_in" }
+  | { type: "mic_close" }
   | { type: "repeat" }
   | { type: "text"; data: string }
   | { type: "end" };
@@ -207,6 +215,8 @@ export type InterviewGatewayEvent =
   | { type: "audio"; seq: number; sample_rate: number; data: string }
   | { type: "audio_done" }
   | { type: "interrupted" }
+  /** The recording held no usable speech — prompt the candidate to try again. */
+  | { type: "no_speech" }
   | { type: "section"; id: string; title: string; index: number; total: number }
   | { type: "completed" }
   | { type: "error"; message: string };

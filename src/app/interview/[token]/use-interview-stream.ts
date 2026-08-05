@@ -4,9 +4,14 @@
  * Browser half of the AI interview voice pipeline.
  *
  * Owns one WebSocket to the gateway, mic capture (16 kHz PCM16 via an
- * AudioWorklet), gapless scheduled PCM playback, the RMS barge-in gate that
- * rejects speaker echo while the interviewer is talking, and the recording
- * mix (mic + TTS) exposed as a MediaStream audio track for the MediaRecorder.
+ * AudioWorklet), gapless scheduled PCM playback, and the recording mix
+ * (mic + TTS) exposed as a MediaStream audio track for the MediaRecorder.
+ *
+ * The mic is push-to-talk: `openMic()` / `closeMic()` bracket the only window in
+ * which audio frames leave the browser. Nothing is inferred from signal energy —
+ * the old automatic barge-in gate tripped on speaker echo and cut the
+ * interviewer off mid-question, so the candidate's tap is now the only thing
+ * that takes the floor.
  *
  * UI-visible bits are React state; the audio engine lives in refs — it
  * mutates per frame and must never trigger re-renders.
@@ -52,6 +57,12 @@ export interface InterviewTurn {
 export interface InterviewStreamApi {
   status: InterviewStreamStatus;
   meta: InterviewMeta | null;
+  /** True while the candidate holds the floor (mic frames are being sent). */
+  micOpen: boolean;
+  /** True once the interviewer's audio has drained and it's the candidate's turn. */
+  canSpeak: boolean;
+  /** Transient coaching line, e.g. after a tap that captured no speech. */
+  hint: string | null;
   /** Streaming interviewer caption — accumulated assistant deltas for the current turn. */
   caption: string;
   /** The candidate's own live transcript (latest partial or final utterance). */
@@ -68,6 +79,10 @@ export interface InterviewStreamApi {
   initMic: () => Promise<void>;
   /** Open the WebSocket (initialises the mic first if needed). */
   connect: () => Promise<void>;
+  /** Take the floor — starts streaming mic audio. Interrupts the interviewer. */
+  openMic: () => Promise<void>;
+  /** Release the floor — the gateway transcribes and answers. */
+  closeMic: () => void;
   start: () => void;
   repeat: () => void;
   end: () => void;
@@ -82,10 +97,6 @@ export interface InterviewStreamApi {
 // ── Audio engine constants (ported from the reference voice pipeline) ────────
 
 const PLAYBACK_LEAD = 0.02; // 20 ms safety margin before the first chunk
-/** RMS threshold while the interviewer is speaking — begins a barge-in. */
-const OPEN_BARGE_RMS = 0.09;
-const OPEN_BARGE_FRAMES = 4; // ~128 ms: reject brief speaker echo, keep natural interruption
-const OPEN_BARGE_PRE_FRAMES = 6; // preserve ~190 ms of the candidate's speech onset
 const WORKLET_URL = "/interview-worklet.js";
 const WORKLET_NAME = "interview-capture-processor";
 const DEFAULT_TTS_RATE = 22050;
@@ -111,17 +122,6 @@ function base64ToInt16(b64: string): Int16Array {
   return new Int16Array(bytes.buffer, 0, evenLength / 2);
 }
 
-function pcm16Rms(buf: ArrayBuffer): number {
-  const samples = new Int16Array(buf);
-  if (samples.length === 0) return 0;
-  let sumSquares = 0;
-  for (let i = 0; i < samples.length; i++) {
-    const n = samples[i] / 32768;
-    sumSquares += n * n;
-  }
-  return Math.sqrt(sumSquares / samples.length);
-}
-
 function analyserRms(
   analyser: AnalyserNode,
   scratch: Float32Array<ArrayBuffer>
@@ -145,6 +145,8 @@ export function useInterviewStream(token: string): InterviewStreamApi {
   const [error, setError] = useState<string | null>(null);
   const [micLevel, setMicLevel] = useState(0);
   const [outputLevel, setOutputLevel] = useState(0);
+  const [micOpen, setMicOpen] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
 
   // ── Audio engine (refs only — mutated per frame) ──
   const wsRef = useRef<WebSocket | null>(null);
@@ -170,16 +172,27 @@ export function useInterviewStream(token: string): InterviewStreamApi {
 
   // Protocol state.
   const statusRef = useRef<InterviewStreamStatus>("idle");
-  const suppressAudioRef = useRef(false);
-  const bargeFramesRef = useRef(0);
-  const bargePreBufRef = useRef<string[]>([]);
+  const micOpenRef = useRef(false);
   const captionRef = useRef("");
   const tornDownRef = useRef(false);
+  /** Timer holding back a status the candidate shouldn't see yet (see below). */
+  const deferredStatusRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const setStatusAll = useCallback((next: InterviewStreamStatus) => {
-    statusRef.current = next;
-    setStatus(next);
+  const clearDeferredStatus = useCallback(() => {
+    if (deferredStatusRef.current !== null) {
+      clearTimeout(deferredStatusRef.current);
+      deferredStatusRef.current = null;
+    }
   }, []);
+
+  const setStatusAll = useCallback(
+    (next: InterviewStreamStatus) => {
+      clearDeferredStatus();
+      statusRef.current = next;
+      setStatus(next);
+    },
+    [clearDeferredStatus]
+  );
 
   const getAudioContext = useCallback((): AudioContext => {
     let actx = actxRef.current;
@@ -228,6 +241,13 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     nextStartRef.current = 0;
   }, []);
 
+  /** Seconds of interviewer audio still queued to come out of the speakers. */
+  const playbackRemaining = useCallback((): number => {
+    const actx = actxRef.current;
+    if (!actx || actx.state === "closed") return 0;
+    return Math.max(0, nextStartRef.current - actx.currentTime);
+  }, []);
+
   const playPcm = useCallback(
     (int16: Int16Array, sampleRate: number) => {
       if (int16.length === 0) return;
@@ -263,46 +283,16 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     if (text) setTurns((t) => [...t, { role: "assistant", text }]);
   }, []);
 
-  // ── Mic frame routing: the open-mic barge-in gate ──
+  // ── Mic frame routing: strictly push-to-talk ──
+  // The worklet runs continuously (it also feeds the level meter and the
+  // recording mix), but a frame only leaves the browser while the candidate is
+  // holding the floor. Room noise between turns is therefore never heard.
   const emitFrame = useCallback(
     (buf: ArrayBuffer) => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      const st = statusRef.current;
-
-      // While the interviewer is speaking, hold mic frames locally. Only after
-      // sustained energy (a real human interruption, not speaker echo) do we
-      // barge in — then replay the onset buffer so the first word isn't lost.
-      if (st === "speaking" && !suppressAudioRef.current) {
-        const frame = bufferToBase64(buf);
-        const pre = bargePreBufRef.current;
-        pre.push(frame);
-        if (pre.length > OPEN_BARGE_PRE_FRAMES) pre.shift();
-        if (pcm16Rms(buf) >= OPEN_BARGE_RMS) {
-          bargeFramesRef.current += 1;
-          if (bargeFramesRef.current >= OPEN_BARGE_FRAMES) {
-            const onset = pre.splice(0);
-            sendFrame({ type: "barge_in" });
-            stopPlayback();
-            suppressAudioRef.current = true;
-            bargeFramesRef.current = 0;
-            for (const onsetFrame of onset) {
-              sendFrame({ type: "audio", data: onsetFrame });
-            }
-          }
-        } else {
-          bargeFramesRef.current = 0;
-        }
-        return;
-      }
-
-      bargePreBufRef.current = [];
-      // 'speaking' here means post-barge (suppressed) — keep streaming speech.
-      if (st === "listening" || st === "thinking" || st === "speaking") {
-        sendFrame({ type: "audio", data: bufferToBase64(buf) });
-      }
+      if (!micOpenRef.current) return;
+      sendFrame({ type: "audio", data: bufferToBase64(buf) });
     },
-    [sendFrame, stopPlayback]
+    [sendFrame]
   );
 
   // ── Level meters (rAF, quantised so renders only happen on visible change) ──
@@ -389,27 +379,42 @@ export function useInterviewStream(token: string): InterviewStreamApi {
           setMeta(ev.interview);
           setStatusAll("ready");
           return;
-        case "status":
+        case "status": {
           if (statusRef.current === "completed") return;
-          if (ev.data !== "speaking") {
-            bargeFramesRef.current = 0;
-            bargePreBufRef.current = [];
-            suppressAudioRef.current = false;
-          }
           // A new interviewer turn begins — bank the previous caption.
           if (ev.data === "thinking") flushCaption();
+          // The gateway calls it "listening" the moment it stops *sending*
+          // audio, but seconds of the question can still be queued for the
+          // speakers. Handing the candidate the mic over the tail end of a
+          // question is exactly the glitch we're removing, so hold the
+          // invitation back until playback has actually drained.
+          if (ev.data === "listening" && !micOpenRef.current) {
+            const remaining = playbackRemaining();
+            if (remaining > 0.05) {
+              clearDeferredStatus();
+              deferredStatusRef.current = setTimeout(
+                () => {
+                  deferredStatusRef.current = null;
+                  if (tornDownRef.current) return;
+                  statusRef.current = "listening";
+                  setStatus("listening");
+                },
+                Math.round(remaining * 1000) + 120
+              );
+              return;
+            }
+          }
           setStatusAll(ev.data);
           return;
+        }
         case "transcript":
           // Candidate is talking — the previous interviewer caption is done.
           if (captionRef.current) flushCaption();
+          setHint(null);
           setTranscript(ev.text);
           setTranscriptFinal(ev.final);
-          if (ev.final) {
-            suppressAudioRef.current = false;
-            if (ev.text.trim()) {
-              setTurns((t) => [...t, { role: "user", text: ev.text.trim() }]);
-            }
+          if (ev.final && ev.text.trim()) {
+            setTurns((t) => [...t, { role: "user", text: ev.text.trim() }]);
           }
           return;
         case "assistant_delta":
@@ -426,7 +431,8 @@ export function useInterviewStream(token: string): InterviewStreamApi {
           }
           return;
         case "audio":
-          if (suppressAudioRef.current) return;
+          // Frames already in flight when the candidate took the floor.
+          if (micOpenRef.current) return;
           if (ev.data) {
             playPcm(
               base64ToInt16(ev.data),
@@ -438,14 +444,18 @@ export function useInterviewStream(token: string): InterviewStreamApi {
           return;
         case "interrupted":
           stopPlayback();
-          bargeFramesRef.current = 0;
+          return;
+        case "no_speech":
+          setHint("I didn't catch that — tap Speak, answer, then tap again to send.");
           return;
         case "section":
           setSection({ id: ev.id, title: ev.title, index: ev.index, total: ev.total });
           return;
         case "completed":
           flushCaption();
-          suppressAudioRef.current = false;
+          micOpenRef.current = false;
+          setMicOpen(false);
+          setHint(null);
           setStatusAll("completed");
           return;
         case "error":
@@ -455,7 +465,14 @@ export function useInterviewStream(token: string): InterviewStreamApi {
           return;
       }
     },
-    [flushCaption, playPcm, setStatusAll, stopPlayback]
+    [
+      clearDeferredStatus,
+      flushCaption,
+      playPcm,
+      playbackRemaining,
+      setStatusAll,
+      stopPlayback,
+    ]
   );
 
   // ── Connection ──
@@ -500,6 +517,8 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     ws.onclose = () => {
       if (wsRef.current !== ws) return;
       wsRef.current = null;
+      micOpenRef.current = false;
+      setMicOpen(false);
       if (tornDownRef.current) return;
       const st = statusRef.current;
       if (st === "completed" || st === "idle") return;
@@ -514,16 +533,55 @@ export function useInterviewStream(token: string): InterviewStreamApi {
   }, [handleEvent, initMic, setStatusAll, token]);
 
   // ── Actions ──
+
+  /** Take the floor. Tapping during a question is a deliberate interruption. */
+  const openMic = useCallback(async () => {
+    if (micOpenRef.current || statusRef.current === "completed") return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      await initMic();
+    } catch {
+      setError(
+        "We couldn't access your microphone. Please allow microphone access in your browser and try again."
+      );
+      return;
+    }
+    // The tap is a user gesture — a good moment to un-suspend audio on iOS.
+    getAudioContext();
+    stopPlayback(); // the candidate is talking now; cut the interviewer short
+    setHint(null);
+    setTranscript("");
+    setTranscriptFinal(false);
+    micOpenRef.current = true;
+    setMicOpen(true);
+    setStatusAll("listening");
+    sendFrame({ type: "mic_open" });
+  }, [getAudioContext, initMic, sendFrame, setStatusAll, stopPlayback]);
+
+  /** Release the floor — the gateway transcribes what it heard and replies. */
+  const closeMic = useCallback(() => {
+    if (!micOpenRef.current) return;
+    micOpenRef.current = false;
+    setMicOpen(false);
+    sendFrame({ type: "mic_close" });
+  }, [sendFrame]);
+
   const start = useCallback(() => sendFrame({ type: "start" }), [sendFrame]);
 
   const repeat = useCallback(() => {
+    if (micOpenRef.current) return; // don't talk over the candidate
     // The question will re-stream from scratch — reset the caption.
     captionRef.current = "";
     setCaption("");
+    setHint(null);
     sendFrame({ type: "repeat" });
   }, [sendFrame]);
 
-  const end = useCallback(() => sendFrame({ type: "end" }), [sendFrame]);
+  const end = useCallback(() => {
+    closeMic();
+    sendFrame({ type: "end" });
+  }, [closeMic, sendFrame]);
 
   const sendText = useCallback(
     (text: string) => {
@@ -539,6 +597,9 @@ export function useInterviewStream(token: string): InterviewStreamApi {
 
   const teardown = useCallback(() => {
     tornDownRef.current = true;
+    clearDeferredStatus();
+    micOpenRef.current = false;
+    setMicOpen(false);
     const ws = wsRef.current;
     wsRef.current = null;
     if (ws) {
@@ -567,13 +628,10 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     for (const track of micStreamRef.current?.getTracks() ?? []) track.stop();
     micStreamRef.current = null;
     micReadyRef.current = false;
-    bargeFramesRef.current = 0;
-    bargePreBufRef.current = [];
-    suppressAudioRef.current = false;
     const actx = actxRef.current;
     actxRef.current = null;
     if (actx && actx.state !== "closed") void actx.close();
-  }, [stopPlayback]);
+  }, [clearDeferredStatus, stopPlayback]);
 
   // Tear everything down if the component using the hook unmounts.
   const teardownRef = useRef(teardown);
@@ -585,6 +643,10 @@ export function useInterviewStream(token: string): InterviewStreamApi {
   return {
     status,
     meta,
+    micOpen,
+    // Only offer the mic once the interviewer's audio has actually drained.
+    canSpeak: status === "listening" || status === "speaking",
+    hint,
     caption,
     transcript,
     transcriptFinal,
@@ -595,6 +657,8 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     outputLevel,
     initMic,
     connect,
+    openMic,
+    closeMic,
     start,
     repeat,
     end,

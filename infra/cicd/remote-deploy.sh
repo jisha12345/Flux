@@ -25,6 +25,14 @@ GATEWAY_UNIT="${APP_NAME}-gateway"
 log() { printf '\n=== %s ===\n' "$*"; }
 fail() { printf 'DEPLOY FAILED: %s\n' "$*" >&2; exit 1; }
 
+# SSM RunCommand executes as root with no HOME, and git refuses to run
+# `config --global` without one. runuser does not set it either, so the
+# deploy user's home is passed explicitly on every command below.
+export HOME="${HOME:-/root}"
+USER_HOME="$(getent passwd "${DEPLOY_USER}" | cut -d: -f6)"
+[ -n "$USER_HOME" ] || fail "cannot resolve home directory for ${DEPLOY_USER}"
+asuser() { runuser -u "$DEPLOY_USER" -- env HOME="$USER_HOME" "$@"; }
+
 [ "$(id -u)" -eq 0 ] || fail "must run as root"
 [ -n "${DEPLOY_SHA:-}" ] || fail "DEPLOY_SHA not set"
 printf '%s' "$DEPLOY_SHA" | grep -Eq '^[0-9a-f]{40}$' || fail "DEPLOY_SHA is not a 40-hex sha"
@@ -35,13 +43,12 @@ done
 
 log "Checking out $DEPLOY_SHA"
 cd "$DEPLOY_PATH" || fail "$DEPLOY_PATH does not exist"
-git config --global credential.helper '!aws codecommit credential-helper $@'
-git config --global credential.UseHttpPath true
-runuser -u "$DEPLOY_USER" -- git config --global credential.helper '!aws codecommit credential-helper $@'
-runuser -u "$DEPLOY_USER" -- git config --global credential.UseHttpPath true
-runuser -u "$DEPLOY_USER" -- git -C "$DEPLOY_PATH" fetch --prune origin main
-runuser -u "$DEPLOY_USER" -- git -C "$DEPLOY_PATH" checkout --detach "$DEPLOY_SHA"
-ACTUAL="$(runuser -u "$DEPLOY_USER" -- git -C "$DEPLOY_PATH" rev-parse HEAD)"
+asuser git config --global credential.helper '!aws codecommit credential-helper $@'
+asuser git config --global credential.UseHttpPath true
+asuser git config --global --add safe.directory "$DEPLOY_PATH"
+asuser git -C "$DEPLOY_PATH" fetch --prune origin main
+asuser git -C "$DEPLOY_PATH" checkout --detach "$DEPLOY_SHA"
+ACTUAL="$(asuser git -C "$DEPLOY_PATH" rev-parse HEAD)"
 [ "$ACTUAL" = "$DEPLOY_SHA" ] || fail "HEAD is $ACTUAL, expected $DEPLOY_SHA"
 
 # Secrets live only on the box and are gitignored — a checkout must never
@@ -51,14 +58,14 @@ ACTUAL="$(runuser -u "$DEPLOY_USER" -- git -C "$DEPLOY_PATH" rev-parse HEAD)"
 
 log "Installing dependencies"
 # env -u NODE_ENV so devDependencies (needed to build) are installed.
-runuser -u "$DEPLOY_USER" -- env -u NODE_ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+asuser env -u NODE_ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
   npm --prefix "$DEPLOY_PATH" ci --include=dev
-runuser -u "$DEPLOY_USER" -- env -u NODE_ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+asuser env -u NODE_ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
   npm --prefix "$DEPLOY_PATH/gateway" install
 
 log "Building"
 rm -rf "$DEPLOY_PATH/.next"
-runuser -u "$DEPLOY_USER" -- env NODE_ENV=production npm --prefix "$DEPLOY_PATH" run build
+asuser env NODE_ENV=production npm --prefix "$DEPLOY_PATH" run build
 
 log "Installing host files"
 install -m 644 "$DEPLOY_PATH/infra/host/flux.service"         /etc/systemd/system/"${APP_NAME}".service
