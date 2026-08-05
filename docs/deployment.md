@@ -97,6 +97,12 @@ prints a reminder.
 origin: auth redirects, magic links and interview-invite emails are built from
 them, and they fall back to `localhost:3000` if unset.
 
+Set **`INTERVIEW_GATEWAY_URL=http://127.0.0.1:8787`** in `.env.production`. The
+app calls the gateway server-to-server to pre-generate interview blueprints;
+without this it falls back to the public `…/gw` URL and the request leaves the
+box and comes back through nginx and TLS for no reason. It has no
+`NEXT_PUBLIC_` prefix, so it takes effect on **restart**, not rebuild.
+
 Supabase Auth has its own **Site URL** and redirect allowlist in the dashboard,
 independent of these. If a magic link ever lands on the wrong host, that is the
 setting to check.
@@ -144,6 +150,14 @@ curl -X POST https://jisha.ai-rocket-experiments.com/gw/evaluate/<token>
   rather than pinning the box to Node 22 (which the other POCs share).
 - **nginx 1.18** (Ubuntu 22.04) has no standalone `http2` directive — it goes
   on the `listen` line.
+- **nginx reaps idle WebSockets after 60 s** (`proxy_read_timeout` default,
+  measured on traffic *from* the gateway). The interview socket is idle for
+  exactly the stretches that matter — the browser now connects during the device
+  check, and a candidate can think for a minute between questions. The gateway
+  sends a WS ping every 25 s to keep it alive; if you ever see interviews
+  dropping at suspiciously round intervals, check that heartbeat before
+  suspecting the app, and raise `proxy_read_timeout` on the `/gw/` location as a
+  belt-and-braces measure.
 - **Never run `npm run build` while `next dev` is running** against the same
   checkout; the production build overwrites `.next` and the dev server starts
   500ing on missing chunks.

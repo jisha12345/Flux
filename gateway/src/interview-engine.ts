@@ -9,6 +9,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "./env.js";
+import { updateInterview } from "./supabase.js";
 import type { AiInterviewRow, InterviewBlueprint } from "./types.js";
 
 export const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
@@ -111,6 +112,36 @@ export async function generateBlueprint(row: AiInterviewRow): Promise<InterviewB
   return fallbackBlueprint(row);
 }
 
+/** Blueprint generations already running, keyed by interview id. */
+const inFlightBlueprints = new Map<string, Promise<InterviewBlueprint>>();
+
+/**
+ * Resolve the interview's blueprint, generating and persisting it when missing.
+ *
+ * Called from two places that can race: `POST /prepare/:token` (fired when the
+ * recruiter creates the link, so the plan is on disk long before anyone opens
+ * it) and the session's own `init`. The second caller joins the first one's
+ * request rather than paying for a duplicate generation.
+ */
+export function ensureBlueprint(row: AiInterviewRow): Promise<InterviewBlueprint> {
+  if (row.blueprint) return Promise.resolve(row.blueprint);
+
+  const existing = inFlightBlueprints.get(row.id);
+  if (existing) return existing;
+
+  const startedAt = Date.now();
+  const pending = generateBlueprint(row)
+    .then(async (blueprint) => {
+      await updateInterview(row.id, { blueprint });
+      console.log(`[blueprint] ready for ${row.id} in ${Date.now() - startedAt}ms`);
+      return blueprint;
+    })
+    .finally(() => inFlightBlueprints.delete(row.id));
+
+  inFlightBlueprints.set(row.id, pending);
+  return pending;
+}
+
 async function requestBlueprint(row: AiInterviewRow): Promise<InterviewBlueprint> {
   const response = await anthropic.messages.create({
     model: env.BLUEPRINT_MODEL,
@@ -190,7 +221,9 @@ ${sectionPlan}
 
 VOICE RULES — everything you write is spoken aloud by TTS:
 - Natural spoken ${languageName(row.language)}. Contractions, warm and human. No markdown, no bullet points, no emoji, no stage directions, no text formatting of any kind.
-- Keep every turn short: a brief, varied acknowledgment of what they said, then exactly ONE question. Stay under 40 words, except the opening greeting and the final wrap-up.
+- Never write internal or system XML tags in your reply.
+- Keep every turn short: exactly ONE question, under 40 words, except the opening greeting and the final wrap-up.
+- Never open with a generic acknowledgement — no "Got it", "Thanks", "Great", "Okay", "Understood", "That's helpful". A short acknowledgement is already spoken for you before your reply is heard. Open with the question itself, or with a specific detail they actually mentioned.
 - Numbers, when spoken, read naturally.
 
 INTERVIEWING RULES:

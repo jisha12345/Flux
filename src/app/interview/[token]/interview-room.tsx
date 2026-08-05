@@ -56,6 +56,7 @@ export function InterviewRoom({
     section,
     error,
     micLevel,
+    silenceProgress,
     outputLevel,
     connect,
     openMic,
@@ -409,7 +410,7 @@ export function InterviewRoom({
               : ending
                 ? "Ending…"
                 : micOpen
-                  ? "Your turn — I'm listening"
+                  ? "Your turn. I'm listening"
                   : orbStatusWord(status)}
           </p>
         </div>
@@ -467,20 +468,35 @@ export function InterviewRoom({
               }}
             />
           )}
-          {micOpen ? (
-            <>
-              <Send className="h-4 w-4" />
-              Tap to send
-              <span className="font-mono text-xs tabular-nums opacity-80">
-                {formatElapsed(answerSeconds)}
-              </span>
-            </>
-          ) : (
-            <>
-              <Mic className="h-4 w-4" />
-              Tap to speak
-            </>
+          {/* Auto-send countdown: the button fills as they trail off, so the
+              send never feels like it cut them off mid-thought. */}
+          {micOpen && silenceProgress > 0 && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 left-0 z-0 rounded-full bg-white/25"
+              style={{
+                width: `${Math.round(silenceProgress * 100)}%`,
+                transition: "width 130ms linear",
+              }}
+            />
           )}
+          {/* Positioned so the countdown fill paints behind the label, not over it. */}
+          <span className="relative z-10 inline-flex items-center gap-2.5">
+            {micOpen ? (
+              <>
+                <Send className="h-4 w-4" />
+                Tap to send
+                <span className="font-mono text-xs tabular-nums opacity-80">
+                  {formatElapsed(answerSeconds)}
+                </span>
+              </>
+            ) : (
+              <>
+                <Mic className="h-4 w-4" />
+                Tap to speak
+              </>
+            )}
+          </span>
         </button>
 
         <p
@@ -492,12 +508,10 @@ export function InterviewRoom({
         >
           {hint ??
             (micOpen
-              ? "Recording — tap again when you've finished your answer"
+              ? "Pause when you're done and I'll send it, or tap."
               : canSpeak
                 ? "Tap, or press Space, when you're ready to answer"
-                : status === "thinking"
-                  ? "One moment…"
-                  : "")}
+                : "")}
         </p>
       </div>
 

@@ -41,6 +41,11 @@ sources from **CodeCommit**. Don't assume Vercel is the target.
 
 - **Claude 5 thinks adaptively.** Never read `response.content[0]` for text —
   filter for text blocks and join them. This silently broke two features.
+- **`max_tokens` caps thinking *and* reply text together**, and adaptive
+  thinking is what you get by omitting the `thinking` parameter. A tight
+  `max_tokens` therefore returns zero text blocks when the model deliberates —
+  which reads as a mystery empty response, not as truncation. Live voice turns
+  pass `thinking: {type: "disabled"}` for this reason as much as for latency.
 - **Public API routes that insert must use `createServiceClient()`.** `anon`
   can INSERT but not SELECT, so `insert().select()` trips RLS. Adding an anon
   SELECT policy would leak the whole table — don't.

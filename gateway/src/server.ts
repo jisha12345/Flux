@@ -6,6 +6,7 @@
  *   POST /upload/:token/chunk         raw video/webm chunk (appended to local tmp)
  *   POST /upload/:token/photo         raw image/jpeg identity snapshot
  *   POST /upload/:token/finalize      pushes the assembled recording to storage
+ *   POST /prepare/:token              pre-generate the blueprint (fire and forget)
  *   POST /evaluate/:token             re-run evaluation for a completed interview
  *
  * Run: npm run dev (tsx watch) — next to `next dev`. Deployable to any Node
@@ -19,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import { env } from "./env.js";
 import { evaluateInterview } from "./evaluate.js";
+import { ensureBlueprint } from "./interview-engine.js";
 import { InterviewSession } from "./session.js";
 import { loadInterviewByToken, updateInterview, uploadPhoto, uploadRecording } from "./supabase.js";
 
@@ -147,6 +149,27 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // POST /prepare/:token — generate the blueprint ahead of the candidate.
+  // Fired when the recruiter creates the link, so the plan is already on disk
+  // by the time anyone opens it instead of being the first thing they wait for.
+  if (req.method === "POST" && parts[0] === "prepare" && parts.length === 2) {
+    const interview = await loadInterviewByToken(parts[1]);
+    if (!interview) {
+      json(res, 404, { error: "unknown_interview" });
+      return;
+    }
+    if (interview.blueprint) {
+      json(res, 200, { ok: true, blueprint: "cached" });
+      return;
+    }
+    // ensureBlueprint dedupes against a candidate who connects mid-generation.
+    void ensureBlueprint(interview).catch((err) =>
+      console.error("[prepare] blueprint generation failed:", err),
+    );
+    json(res, 202, { ok: true, blueprint: "generating" });
+    return;
+  }
+
   // POST /evaluate/:token — manual (re)trigger for completed interviews
   if (req.method === "POST" && parts[0] === "evaluate" && parts.length === 2) {
     const interview = await loadInterviewByToken(parts[1]);
@@ -210,6 +233,22 @@ async function acceptInterviewSocket(ws: WebSocket, token: string): Promise<void
   }
 
   const session = new InterviewSession(ws, interview);
+
+  // nginx proxies this socket and its default `proxy_read_timeout` is 60s,
+  // measured on traffic *from* the gateway. The browser now connects during the
+  // device check and a candidate can easily think for a minute between turns —
+  // both are silent stretches long enough to get the connection reaped. A ping
+  // costs nothing and the browser pongs automatically.
+  const heartbeat = setInterval(() => {
+    if (ws.readyState !== ws.OPEN) return;
+    try {
+      ws.ping();
+    } catch {
+      /* socket is going away anyway */
+    }
+  }, 25_000);
+  const stopHeartbeat = () => clearInterval(heartbeat);
+
   ws.on("message", (data) => {
     const text =
       typeof data === "string"
@@ -219,8 +258,14 @@ async function acceptInterviewSocket(ws: WebSocket, token: string): Promise<void
           : Buffer.from(data as Buffer).toString("utf8");
     session.handleMessage(text);
   });
-  ws.on("close", () => session.teardown());
-  ws.on("error", () => session.teardown());
+  ws.on("close", () => {
+    stopHeartbeat();
+    session.teardown();
+  });
+  ws.on("error", () => {
+    stopHeartbeat();
+    session.teardown();
+  });
 
   try {
     await session.init();

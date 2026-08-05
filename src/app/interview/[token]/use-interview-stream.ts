@@ -8,10 +8,13 @@
  * (mic + TTS) exposed as a MediaStream audio track for the MediaRecorder.
  *
  * The mic is push-to-talk: `openMic()` / `closeMic()` bracket the only window in
- * which audio frames leave the browser. Nothing is inferred from signal energy —
- * the old automatic barge-in gate tripped on speaker echo and cut the
- * interviewer off mid-question, so the candidate's tap is now the only thing
- * that takes the floor.
+ * which audio frames leave the browser. The candidate's tap is the only thing
+ * that *takes* the floor — the old automatic barge-in gate tripped on speaker
+ * echo and cut the interviewer off mid-question. Releasing the floor is
+ * automatic after ~1.5 s of trailing silence, which is safe for exactly that
+ * reason: the mic is only open because they opened it, so the interviewer isn't
+ * playing and there is no echo to mistake for speech. The tap still works as an
+ * instant override.
  *
  * UI-visible bits are React state; the audio engine lives in refs — it
  * mutates per frame and must never trigger re-renders.
@@ -73,6 +76,8 @@ export interface InterviewStreamApi {
   error: string | null;
   /** Smoothed mic RMS, 0..1 — drives the level meter and the orb. */
   micLevel: number;
+  /** 0..1 progress toward auto-send while the candidate is trailing off. */
+  silenceProgress: number;
   /** Smoothed TTS playback RMS, 0..1 — modulates the speaking orb. */
   outputLevel: number;
   /** Acquire mic + build the capture/monitor graph. Safe to call repeatedly. */
@@ -99,7 +104,26 @@ export interface InterviewStreamApi {
 const PLAYBACK_LEAD = 0.02; // 20 ms safety margin before the first chunk
 const WORKLET_URL = "/interview-worklet.js";
 const WORKLET_NAME = "interview-capture-processor";
-const DEFAULT_TTS_RATE = 22050;
+/** Only a fallback — every audio frame carries its own rate in the header. */
+const DEFAULT_TTS_RATE = 16000;
+
+// ── Auto end-of-turn ─────────────────────────────────────────────────────────
+// Thresholds mirror the gateway's own speech-vs-mis-tap gate so both halves
+// agree on what counts as someone talking.
+
+/** Raw int16 RMS above which a 32 ms frame counts as speech. */
+const VOICED_RMS = 500;
+/** Frames of speech required before auto-send arms at all. */
+const MIN_VOICED_FRAMES = 6;
+/**
+ * Frames (~32 ms each) of trailing silence that end the turn — about 1.5 s.
+ *
+ * This is the knob to tune against real candidates. Conversational turn-taking
+ * would justify something nearer 1 s, but people think out loud mid-answer in
+ * an interview and being cut off is far worse than waiting half a second
+ * longer. Err long; the tap is always there for anyone who wants it sooner.
+ */
+const SILENCE_FRAMES_TO_END = 47;
 
 // ── PCM helpers ──────────────────────────────────────────────────────────────
 
@@ -113,13 +137,13 @@ function bufferToBase64(buf: ArrayBuffer): string {
   return btoa(binary);
 }
 
-function base64ToInt16(b64: string): Int16Array {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  // Guard against an odd byte length (drop the trailing byte rather than throw).
-  const evenLength = bytes.byteLength - (bytes.byteLength % 2);
-  return new Int16Array(bytes.buffer, 0, evenLength / 2);
+/** RMS of a raw PCM16LE capture frame, on the same int16 scale as the gateway. */
+function int16Rms(buf: ArrayBuffer): number {
+  const samples = new Int16Array(buf);
+  if (samples.length === 0) return 0;
+  let sumSquares = 0;
+  for (let i = 0; i < samples.length; i++) sumSquares += samples[i] * samples[i];
+  return Math.sqrt(sumSquares / samples.length);
 }
 
 function analyserRms(
@@ -147,6 +171,7 @@ export function useInterviewStream(token: string): InterviewStreamApi {
   const [outputLevel, setOutputLevel] = useState(0);
   const [micOpen, setMicOpen] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+  const [silenceProgress, setSilenceProgress] = useState(0);
 
   // ── Audio engine (refs only — mutated per frame) ──
   const wsRef = useRef<WebSocket | null>(null);
@@ -169,6 +194,13 @@ export function useInterviewStream(token: string): InterviewStreamApi {
   // Playback scheduling.
   const nextStartRef = useRef(0);
   const liveSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+
+  // Auto end-of-turn bookkeeping (per-frame — refs, never state).
+  const voicedFramesRef = useRef(0);
+  const silentFramesRef = useRef(0);
+  const silenceQRef = useRef(0);
+  /** Set below; the capture worklet's callback is bound once at initMic. */
+  const closeMicRef = useRef<() => void>(() => {});
 
   // Protocol state.
   const statusRef = useRef<InterviewStreamStatus>("idle");
@@ -270,6 +302,23 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     [ensureMixGraph, getAudioContext]
   );
 
+  /**
+   * Interviewer audio arrives as a binary frame — an 8-byte header
+   * ([uint32 seq][uint32 sampleRate]) followed by raw PCM16LE. It used to be
+   * base64 inside a JSON event, which cost a third more bytes on the heaviest
+   * stream on the socket plus a decode per chunk on the main thread.
+   */
+  const playAudioFrame = useCallback(
+    (frame: ArrayBuffer) => {
+      // Frames already in flight when the candidate took the floor.
+      if (micOpenRef.current || frame.byteLength <= 8) return;
+      const sampleRate = new DataView(frame).getUint32(4, true) || DEFAULT_TTS_RATE;
+      // The header is 8 bytes, so the PCM view is 2-byte aligned.
+      playPcm(new Int16Array(frame, 8, (frame.byteLength - 8) >> 1), sampleRate);
+    },
+    [playPcm]
+  );
+
   const sendFrame = useCallback((frame: InterviewClientFrame) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
@@ -283,6 +332,15 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     if (text) setTurns((t) => [...t, { role: "assistant", text }]);
   }, []);
 
+  const resetTurnDetector = useCallback(() => {
+    voicedFramesRef.current = 0;
+    silentFramesRef.current = 0;
+    if (silenceQRef.current !== 0) {
+      silenceQRef.current = 0;
+      setSilenceProgress(0);
+    }
+  }, []);
+
   // ── Mic frame routing: strictly push-to-talk ──
   // The worklet runs continuously (it also feeds the level meter and the
   // recording mix), but a frame only leaves the browser while the candidate is
@@ -291,6 +349,36 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     (buf: ArrayBuffer) => {
       if (!micOpenRef.current) return;
       sendFrame({ type: "audio", data: bufferToBase64(buf) });
+
+      // Auto end-of-turn. Waiting for the candidate to tap "send" costs a full
+      // human reaction time on every single turn — invisible in any latency
+      // measurement, and the largest per-turn delay left in the pipeline.
+      // Arms only once they have actually said something, so an open mic in a
+      // silent room waits for the tap instead of firing an empty turn.
+      if (int16Rms(buf) >= VOICED_RMS) {
+        voicedFramesRef.current += 1;
+        if (silentFramesRef.current > 0) {
+          silentFramesRef.current = 0;
+          if (silenceQRef.current !== 0) {
+            silenceQRef.current = 0;
+            setSilenceProgress(0);
+          }
+        }
+        return;
+      }
+      if (voicedFramesRef.current < MIN_VOICED_FRAMES) return;
+
+      silentFramesRef.current += 1;
+      // Quantised: the ring repaints ~10 times over the countdown, not 38.
+      const progress = Math.min(
+        1,
+        Math.round((silentFramesRef.current / SILENCE_FRAMES_TO_END) * 10) / 10
+      );
+      if (progress !== silenceQRef.current) {
+        silenceQRef.current = progress;
+        setSilenceProgress(progress);
+      }
+      if (silentFramesRef.current >= SILENCE_FRAMES_TO_END) closeMicRef.current();
     },
     [sendFrame]
   );
@@ -430,23 +518,13 @@ export function useInterviewStream(token: string): InterviewStreamApi {
             setCaption(ev.text);
           }
           return;
-        case "audio":
-          // Frames already in flight when the candidate took the floor.
-          if (micOpenRef.current) return;
-          if (ev.data) {
-            playPcm(
-              base64ToInt16(ev.data),
-              typeof ev.sample_rate === "number" ? ev.sample_rate : DEFAULT_TTS_RATE
-            );
-          }
-          return;
         case "audio_done":
           return;
         case "interrupted":
           stopPlayback();
           return;
         case "no_speech":
-          setHint("I didn't catch that — tap Speak, answer, then tap again to send.");
+          setHint("I didn't catch that. Tap Speak, answer, then tap again to send.");
           return;
         case "section":
           setSection({ id: ev.id, title: ev.title, index: ev.index, total: ev.total });
@@ -468,7 +546,6 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     [
       clearDeferredStatus,
       flushCaption,
-      playPcm,
       playbackRemaining,
       setStatusAll,
       stopPlayback,
@@ -501,10 +578,15 @@ export function useInterviewStream(token: string): InterviewStreamApi {
 
     const wsUrl = `${GATEWAY_URL.replace(/^http/, "ws")}/ws?token=${encodeURIComponent(token)}`;
     const ws = new WebSocket(wsUrl);
+    ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
       if (wsRef.current !== ws || tornDownRef.current) return;
+      if (event.data instanceof ArrayBuffer) {
+        playAudioFrame(event.data);
+        return;
+      }
       if (typeof event.data !== "string") return;
       let parsed: InterviewGatewayEvent;
       try {
@@ -523,14 +605,14 @@ export function useInterviewStream(token: string): InterviewStreamApi {
       const st = statusRef.current;
       if (st === "completed" || st === "idle") return;
       setError(
-        "The connection to your interview dropped. Check your internet connection and reconnect — your progress is saved."
+        "The connection to your interview dropped. Check your internet connection and reconnect. Your progress is saved."
       );
       setStatusAll("error");
     };
     ws.onerror = () => {
       // onclose always follows and carries the user-facing handling.
     };
-  }, [handleEvent, initMic, setStatusAll, token]);
+  }, [handleEvent, initMic, playAudioFrame, setStatusAll, token]);
 
   // ── Actions ──
 
@@ -553,19 +635,33 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     setHint(null);
     setTranscript("");
     setTranscriptFinal(false);
+    resetTurnDetector();
     micOpenRef.current = true;
     setMicOpen(true);
     setStatusAll("listening");
     sendFrame({ type: "mic_open" });
-  }, [getAudioContext, initMic, sendFrame, setStatusAll, stopPlayback]);
+  }, [
+    getAudioContext,
+    initMic,
+    resetTurnDetector,
+    sendFrame,
+    setStatusAll,
+    stopPlayback,
+  ]);
 
   /** Release the floor — the gateway transcribes what it heard and replies. */
   const closeMic = useCallback(() => {
     if (!micOpenRef.current) return;
     micOpenRef.current = false;
     setMicOpen(false);
+    resetTurnDetector();
     sendFrame({ type: "mic_close" });
-  }, [sendFrame]);
+  }, [resetTurnDetector, sendFrame]);
+
+  // The capture worklet's message handler is bound once, at initMic. Auto
+  // end-of-turn reaches the *current* closeMic through this ref rather than
+  // whichever closure happened to be live when the graph was built.
+  closeMicRef.current = closeMic;
 
   const start = useCallback(() => sendFrame({ type: "start" }), [sendFrame]);
 
@@ -644,8 +740,10 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     status,
     meta,
     micOpen,
-    // Only offer the mic once the interviewer's audio has actually drained.
-    canSpeak: status === "listening" || status === "speaking",
+    // "thinking" counts: openMic cancels the in-flight turn cleanly, so leaving
+    // the button dead while the model generates only made the UI feel stuck.
+    canSpeak:
+      status === "listening" || status === "speaking" || status === "thinking",
     hint,
     caption,
     transcript,
@@ -654,6 +752,7 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     turns,
     error,
     micLevel,
+    silenceProgress,
     outputLevel,
     initMic,
     connect,

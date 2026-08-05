@@ -17,6 +17,7 @@ browser  ── AudioWorklet, 16 kHz PCM16 ──►  voice gateway (Node, :8787
    │                                              ▼
    │                                   Claude (streamed, sentence-chunked)
    └──── scheduled PCM playback ◄──── Sarvam streaming TTS (bulbul:v3, "ritu")
+        (binary WS frames, 16 kHz)
 ```
 
 There is deliberately **no realtime speech model**. This is a discrete
@@ -29,41 +30,82 @@ The gateway is a **separate Node process**, not a Next.js route, because
 Vercel cannot hold a WebSocket open. It runs beside `next dev` locally and as
 its own systemd unit in production.
 
-### The mic is push-to-talk, and that is load-bearing
+### Taking the floor is manual; releasing it is not
 
-The candidate taps **Tap to speak** to take the floor and taps again to send.
-Between taps the browser sends no audio at all and the gateway listens to
-nothing. There is **no voice-activity detection anywhere in the pipeline.**
+The candidate taps **Tap to speak** to take the floor. Between turns the browser
+sends no audio at all and the gateway listens to nothing. **Only a tap ever
+takes the floor** — that part is load-bearing.
 
-This replaced an open-mic build with a server-side energy VAD, which failed in
-a way worth remembering: room noise — and the interviewer's own TTS leaking
-back through the candidate's speakers — tripped `speech_start`, which cancelled
-the question that was still being generated. The interviewer would appear to
-skip questions, answer itself, or transcribe coughs as answers. Any future
-"just add automatic turn detection" idea has to solve that first.
+It replaced an open-mic build with a server-side energy VAD, which failed in a
+way worth remembering: room noise — and the interviewer's own TTS leaking back
+through the candidate's speakers — tripped `speech_start`, which cancelled the
+question that was still being generated. The interviewer would appear to skip
+questions, answer itself, or transcribe coughs as answers.
+
+Releasing the floor *is* automatic: the browser ends the turn after ~1.5 s of
+trailing silence (`SILENCE_FRAMES_TO_END` in `use-interview-stream.ts`), and the
+send button fills as a countdown so it never feels like a cut-off. This is safe
+precisely because it can only run while the mic is open, which only happens on a
+deliberate tap — so the interviewer is never speaking and there is no echo to
+mistake for speech. It exists because waiting for a second tap cost a full human
+reaction time on *every* turn, which no latency measurement ever showed.
 
 Consequences that hold today:
 
 - `mic_open` / `mic_close` frames bracket every candidate turn; STT flushes on
-  `mic_close`, never on silence.
-- Tapping while the interviewer is speaking is a deliberate barge-in — the only
-  way a turn gets interrupted.
-- The client withholds the "your turn" state until scheduled TTS playback has
-  actually drained, so the button never goes live over the tail of a question.
+  `mic_close`, never on silence at the gateway.
+- Tapping while the interviewer is speaking or thinking is a deliberate barge-in
+  — the only way a turn gets interrupted.
+- Auto-send arms only after `MIN_VOICED_FRAMES` of real speech, so an open mic
+  in a silent room waits for the tap rather than firing an empty turn.
+- The client withholds the "your turn" wording until scheduled TTS playback has
+  actually drained, so the label never goes live over the tail of a question.
 - A tap that captured no voiced audio returns `no_speech` instead of sending an
   empty turn to the model.
 
 ### Why it feels fast
 
-First audio lands ~1.5–2 s after the candidate sends their answer, because the
-pipeline never waits for a whole turn to finish:
+Nothing in the turn waits for the stage before it to finish:
 
 - `SentenceChunker` (`gateway/src/voice-chunker.ts`) emits the first fragment
   after ~18 characters, so TTS starts while Claude is still generating.
-- STT and TTS sockets are prewarmed.
+  **Sarvam's `min_buffer_size` floor is 30** — anything lower is rejected with a
+  422 and TTS goes completely silent, which previously surfaced only as a 20 s
+  flush timeout. So the first fragment does wait for a second one; at streaming
+  speed that costs tens of milliseconds. This is not a knob to lower.
+- **Thinking is disabled on live turns.** Adaptive thinking is on by default on
+  Claude 5 and its tokens are silent, so nothing reached TTS until the model
+  finished deliberating over a 40-word question.
+- **The system prompt and the conversation are prompt-cached**, with a fixed
+  breakpoint on the system block and a second one that walks forward with the
+  last message.
+- STT and TTS sockets are prewarmed, and the model request no longer waits on
+  the TTS handshake — `ensureTts` assigns the session synchronously, so only
+  `speak()` needs the socket.
+- The browser connects during the device check, so the blueprint, STT and TTS
+  are all warm before the room renders. The blueprint itself is normally
+  generated at link creation (`POST /prepare/:token`).
 
-Sarvam quirk worth knowing: **a flushed TTS socket cannot be reused.** Drop it
-and open a new one.
+And when it isn't fast, it doesn't sound dead: a bank of short acknowledgements
+("Got it.", "Right.") is synthesized once per session and one plays the instant
+the turn is handed back, covering the STT + LLM + TTS gap the way a human
+interviewer would. The bank is warmed *after* the greeting, so the first
+candidate turn may have no filler — that degrades to the old silence.
+
+**Measure, don't guess.** Every turn logs one line:
+
+```
+[turn] first_audio=980ms filler=3ms stt_flush=310ms first_token=620ms
+[llm]  ttft=590ms total=1240ms in=42 cache_read=3180 cache_write=0 out=38 stop=end_turn
+```
+
+`cache_read=0` across consecutive turns means something is invalidating the
+prefix — that is a bug, not a tuning opportunity.
+
+Sarvam quirks worth knowing: **a flushed TTS socket cannot be reused** (drop it
+and open a new one), and interviewer audio goes down the socket as **binary**
+frames — an 8-byte `[uint32 seq][uint32 sampleRate]` header then raw PCM16LE.
+Base64-in-JSON cost a third more bytes on the heaviest stream on the wire.
 
 ## Interview flow
 
@@ -71,9 +113,12 @@ and open a new one.
    (`en-IN` / `hi-IN`), duration → creates a row and a shareable token link.
 2. Candidate opens `/interview/<token>`: consent → camera/mic/speaker check →
    identity snapshot → push-to-talk interview → done screen.
-3. On first connect the gateway generates a **blueprint** from the JD + CV
-   (sections with minutes and probes, 8 competencies, role level), then
-   conducts the interview against it, persisting every turn.
+3. Creating the link fires `POST /prepare/:token` at the gateway, which
+   generates the **blueprint** from the JD + CV (sections with minutes and
+   probes, 8 competencies, role level) in the background. The session
+   regenerates it on connect if that never landed; `ensureBlueprint` dedupes the
+   two paths so a candidate arriving mid-generation joins it rather than paying
+   for a second one.
 4. On completion it runs the evaluation and writes an `InterviewReport`.
 5. Report renders at `/employer/report/<id>`; print to PDF from the toolbar.
 
@@ -104,11 +149,23 @@ handles a marker split across streaming deltas.
 ## Models
 
 Configurable via env, defaulting to `claude-sonnet-5` for the blueprint and the
-live turns, and `claude-opus-5` for evaluation (the quality-critical step).
+live turns, and `claude-opus-5` for evaluation (the quality-critical step, and
+off the latency path entirely).
 
 **Claude 5 thinks adaptively**, so a response may lead with a thinking block:
 never read `content[0]` for text — join every text block. Getting this wrong
 broke blueprint generation and evaluation in two separate places.
+
+Live turns pass `thinking: {type: "disabled"}` with `effort: "low"`. Adaptive
+thinking is what you get by *omitting* the parameter on Claude 5, and it cost us
+twice here: the tokens are silent, so first audio waited on them, and
+`max_tokens` caps thinking and reply text **together** — a turn that deliberated
+past the 400-token cap came back with no text block at all. That is the empty
+interviewer turn `runTurn` still defends against. Do not re-enable thinking on
+the live path without raising `max_tokens` well clear of it.
+
+The blueprint and the evaluation both keep adaptive thinking: they are one-shot,
+quality-critical, and nobody is listening to silence while they run.
 
 Blueprint generation retries twice and then falls back to a generic-but-valid
 plan, so a malformed JSON response degrades the interview instead of killing
@@ -131,11 +188,17 @@ npm run gateway    # voice gateway on :8787
 
 Needs `.env.local` with the Supabase keys, `ANTHROPIC_API_KEY`,
 `SARVAM_API_KEY`, and `NEXT_PUBLIC_INTERVIEW_GATEWAY_URL=http://localhost:8787`.
+Set `INTERVIEW_GATEWAY_URL` too if the app should reach the gateway on a
+different (e.g. internal) address than the browser does — blueprint prewarming
+is server-to-server.
 For a fully offline stack (local Postgres + seeded data) see
 `supabase/local-bootstrap.sql` and `supabase/seed-demo-interviews.sql`.
 
 ## Useful endpoints
 
 - `GET  /gw/health` — gateway liveness
+- `POST /gw/prepare/<token>` — generate the blueprint ahead of time. Answers
+  `202` immediately and generates in the background; safe to call repeatedly.
+  The app fires this when a recruiter creates the link.
 - `POST /gw/evaluate/<token>` — re-run a failed or stuck evaluation without
   redoing the interview

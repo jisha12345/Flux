@@ -6,17 +6,23 @@
  * does STT flush, Claude stream the interviewer's reply, a sentence chunker feed
  * streaming TTS, and PCM flow back down the same socket.
  *
- * There is deliberately NO voice-activity detection. The earlier energy-VAD
+ * The floor is only ever *taken* by an explicit tap. The earlier energy-VAD
  * build let room noise (and the interviewer's own TTS leaking back through the
  * candidate's speakers) open a "turn", which cancelled the question that was
  * still being generated — so the interviewer would sometimes never ask anything.
- * A turn now starts and ends only on an explicit tap.
+ * The browser does auto-*release* the floor after ~1.5 s of trailing silence,
+ * which is safe precisely because the mic is only open when the candidate
+ * deliberately opened it and the interviewer is therefore not speaking.
+ *
+ * Every turn logs one `[turn]` line with the four serial stages, so a slow
+ * pipeline can be diagnosed instead of guessed at.
  */
 import type WebSocket from "ws";
 import { SttStreamSession, TtsStreamSession } from "./audio-stream.js";
+import { FillerBank } from "./fillers.js";
 import {
   buildSystemPrompt,
-  generateBlueprint,
+  ensureBlueprint,
   MarkerFilter,
   streamTurn,
   type HistoryMessage,
@@ -46,8 +52,22 @@ const NUDGE_LINES: Record<string, string> = {
   "hi-IN": "आराम से सोचिए। जब तैयार हों तो बोलने वाला बटन दबाइए — या मैं सवाल दोहरा सकती हूँ।",
 };
 
+/**
+ * Wall-clock marks for one candidate turn, from the moment they hand the floor
+ * back to the moment they hear something. Logged once per turn — the pipeline
+ * has four serial stages and guessing which one is slow never worked.
+ */
+interface TurnTiming {
+  micClosedAt: number;
+  fillerMs: number;
+  sttMs: number;
+  firstDeltaMs: number;
+  logged: boolean;
+}
+
 export class InterviewSession {
   private readonly stt: SttStreamSession;
+  private readonly fillers: FillerBank;
   private tts: TtsStreamSession | null = null;
 
   private history: HistoryMessage[] = [];
@@ -63,6 +83,7 @@ export class InterviewSession {
 
   private micOpen = false;
   private voicedFrames = 0;
+  private turnTiming: TurnTiming | null = null;
   /** A candidate turn whose reply came back empty — folded into the next turn. */
   private pendingUserContent = "";
 
@@ -82,18 +103,19 @@ export class InterviewSession {
     this.stt = new SttStreamSession(row.language, {
       onTranscript: (text) => this.updateTranscriptPreview(text),
     });
+    this.fillers = new FillerBank(row.language);
   }
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
 
   async init(): Promise<void> {
-    // Blueprint on first connect (link creation stays instant).
+    // Normally already on disk: `POST /prepare/:token` runs at link creation, and
+    // the browser connects during the device check. This is the fallback path.
     if (!this.row.blueprint) {
       this.send({ type: "status", data: "thinking" });
       try {
-        const blueprint = await generateBlueprint(this.row);
+        const blueprint = await ensureBlueprint(this.row);
         this.row = { ...this.row, blueprint };
-        await updateInterview(this.row.id, { blueprint });
       } catch (err) {
         console.error("[session] blueprint generation failed:", err);
         this.send({ type: "error", message: "Could not prepare the interview. Please try again shortly." });
@@ -156,7 +178,9 @@ export class InterviewSession {
         }
         if (pcm.byteLength < 2) return;
         if (pcm16LeRms(pcm) >= VOICED_RMS) this.voicedFrames += 1;
-        this.stt.sendPcm(pcm);
+        // Forward the base64 we were handed — the decode above is only for the
+        // energy check, and re-encoding it would be pure waste per 32 ms frame.
+        this.stt.sendPcmBase64(msg.data);
         return;
       }
       case "mic_close":
@@ -226,18 +250,39 @@ export class InterviewSession {
       return;
     }
 
+    this.turnTiming = {
+      micClosedAt: Date.now(),
+      fillerMs: -1,
+      sttMs: -1,
+      firstDeltaMs: -1,
+      logged: false,
+    };
     this.send({ type: "status", data: "thinking" });
+    // A real interviewer says "got it" while they think, rather than going
+    // silent for a second and a half. This clip is already synthesized, so it
+    // reaches the candidate's speakers before STT has even finished flushing.
+    this.playFiller();
     // Off the receive loop so the STT flush cannot block incoming frames.
     this.spawn(this.finalizeAndRespond());
   }
 
+  /** Play a cached acknowledgement over the STT + LLM + TTS gap. */
+  private playFiller(): void {
+    const clip = this.fillers.next();
+    if (!clip) return;
+    this.emitPcm(clip, this.fillers.sampleRate);
+    if (this.turnTiming) this.turnTiming.fillerMs = Date.now() - this.turnTiming.micClosedAt;
+  }
+
   private async finalizeAndRespond(): Promise<void> {
+    const startedAt = Date.now();
     let transcript = "";
     try {
       transcript = await this.stt.flush();
     } catch {
       transcript = "";
     }
+    if (this.turnTiming) this.turnTiming.sttMs = Date.now() - startedAt;
     if (this.completed || this.micOpen) return; // mic re-opened while flushing
     if (transcript) {
       this.beginTurn(transcript);
@@ -353,7 +398,10 @@ export class InterviewSession {
     this.pendingUserContent = "";
     const history: HistoryMessage[] = [...this.history, { role: "user", content }];
 
-    await this.ensureTts();
+    // `ensureTts` assigns `this.tts` synchronously and only the handshake is
+    // async, so awaiting it here just parked the model request behind a Sarvam
+    // connect. Let them race; `speak()` waits on the socket itself.
+    this.spawn(this.ensureTts());
     const chunker = new SentenceChunker();
     let spoke = false;
     let endRequested = false;
@@ -379,6 +427,10 @@ export class InterviewSession {
     const filter = new MarkerFilter(
       (text) => {
         if (myTurn !== this.turnId || !text) return;
+        const timing = this.turnTiming;
+        if (timing && timing.firstDeltaMs < 0) {
+          timing.firstDeltaMs = Date.now() - timing.micClosedAt;
+        }
         this.send({ type: "assistant_delta", text });
         for (const sentence of chunker.feed(text)) speakSentence(sentence);
       },
@@ -452,6 +504,9 @@ export class InterviewSession {
     this.turnActive = false;
     this.audioOpen = false;
     this.send({ type: "audio_done" });
+    // Warm the acknowledgement bank once the greeting is out — synthesizing it
+    // any earlier would compete with the audio the candidate is waiting on.
+    this.spawn(this.fillers.warm());
 
     const overHardCap =
       this.startedAtMs > 0 &&
@@ -563,13 +618,39 @@ export class InterviewSession {
 
   private emitAudio(pcm: Uint8Array, sampleRate: number): void {
     if (!this.audioOpen || pcm.byteLength === 0) return;
+
+    const timing = this.turnTiming;
+    if (timing && !timing.logged) {
+      timing.logged = true;
+      console.log(
+        `[turn] first_audio=${Date.now() - timing.micClosedAt}ms ` +
+          `filler=${timing.fillerMs}ms stt_flush=${timing.sttMs}ms ` +
+          `first_token=${timing.firstDeltaMs}ms`,
+      );
+    }
+    this.emitPcm(pcm, sampleRate);
+  }
+
+  /**
+   * Interviewer audio as a binary frame: [uint32 seq][uint32 sampleRate][PCM16LE].
+   *
+   * This is the fattest thing on the socket, and base64-in-JSON added a third
+   * again on top of it plus an encode here and a decode in the browser. The
+   * candidate's connection is the one place we cannot make faster, so we send
+   * it fewer bytes.
+   */
+  private emitPcm(pcm: Uint8Array, sampleRate: number): void {
+    if (this.closed || this.ws.readyState !== WS_OPEN || pcm.byteLength === 0) return;
     this.audioSeq += 1;
-    this.send({
-      type: "audio",
-      seq: this.audioSeq,
-      sample_rate: sampleRate,
-      data: Buffer.from(pcm).toString("base64"),
-    });
+    const frame = Buffer.allocUnsafe(8 + pcm.byteLength);
+    frame.writeUInt32LE(this.audioSeq, 0);
+    frame.writeUInt32LE(sampleRate, 4);
+    frame.set(pcm, 8);
+    try {
+      this.ws.send(frame);
+    } catch {
+      /* client gone */
+    }
   }
 
   private send(obj: unknown): void {

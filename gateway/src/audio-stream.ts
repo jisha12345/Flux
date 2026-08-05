@@ -176,12 +176,17 @@ export class SttStreamSession {
     this.queue.drainNow();
   }
 
-  /** Forward one frame of 16 kHz mono signed-16-bit little-endian PCM. */
-  sendPcm(pcm: Uint8Array): void {
+  /**
+   * Forward one frame of 16 kHz mono signed-16-bit little-endian PCM, already
+   * base64-encoded — which is how it arrives from the browser. Taking the
+   * encoded string straight through saves a decode/re-encode per 32 ms frame,
+   * per session, on a box that hosts several POCs.
+   */
+  sendPcmBase64(pcmBase64: string): void {
     if (this.closed) return;
     const frame = JSON.stringify({
       audio: {
-        data: Buffer.from(pcm).toString("base64"),
+        data: pcmBase64,
         sample_rate: String(this.sampleRate),
         encoding: "audio/wav",
       },
@@ -279,7 +284,13 @@ export class TtsStreamSession {
         model: env.SARVAM_TTS_MODEL,
         speech_sample_rate: String(this.sampleRate),
         output_audio_codec: "linear16",
-        min_buffer_size: 30, // start synthesizing sooner
+        // 30 is Sarvam's minimum — anything lower is rejected with a 422
+        // ("Input parameters has to be a valid dictionary"), verified by probe.
+        // It is above SentenceChunker's 18-char `firstMin`, so the first
+        // fragment does wait for a second one before synthesis starts; at
+        // streaming speed that is tens of milliseconds. Don't "optimise" this
+        // downward — it silences TTS completely.
+        min_buffer_size: 30,
         max_chunk_length: 150,
       },
     });
@@ -344,6 +355,12 @@ export class TtsStreamSession {
         this.onAudio(new Uint8Array(Buffer.from(b64, "base64")), this.sampleRate);
       }
     } else if (msg?.type === "event" && msg.data?.event_type === "final") {
+      this.finalResolve?.();
+    } else if (msg?.type === "error") {
+      // Sarvam rejects a bad config with an error frame and then simply never
+      // sends `final`, so this used to surface only as a 20s flush timeout and
+      // a mute interviewer. Say so, and stop waiting.
+      console.error(`[tts] Sarvam rejected the stream: ${raw.slice(0, 300)}`);
       this.finalResolve?.();
     }
   }

@@ -42,7 +42,11 @@ export const env = {
   SARVAM_STT_MODEL: pick("SARVAM_STT_MODEL") ?? "saarika:v2.5",
   SARVAM_TTS_MODEL: pick("SARVAM_TTS_MODEL") ?? "bulbul:v3",
   SARVAM_TTS_VOICE: pick("SARVAM_TTS_VOICE") ?? "ritu",
-  SARVAM_TTS_SAMPLE_RATE: Number(pick("SARVAM_TTS_SAMPLE_RATE") ?? 22050),
+  // 16 kHz, not 22.05 kHz: interviewer audio is the heaviest thing on the
+  // socket and speech loses nothing audible at this rate, while a candidate on
+  // a weak mobile connection gets ~27% fewer bytes to stall on. Playback
+  // underruns read as "the AI is slow" even when latency is fine.
+  SARVAM_TTS_SAMPLE_RATE: Number(pick("SARVAM_TTS_SAMPLE_RATE") ?? 16000),
   SARVAM_BASE_URL: pick("SARVAM_BASE_URL") ?? "https://api.sarvam.ai",
 };
 

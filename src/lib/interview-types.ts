@@ -182,9 +182,9 @@ export interface AiInterviewRow {
  * Browser → gateway (JSON text frames). Audio is base64 PCM16LE mono @ 16 kHz.
  *
  * The mic is push-to-talk: the candidate taps to speak, so `audio` frames only
- * flow between `mic_open` and `mic_close`. There is no voice-activity detection
- * anywhere in the pipeline — a turn ends when (and only when) the candidate says
- * it does.
+ * flow between `mic_open` and `mic_close`. Nothing but a tap ever *takes* the
+ * floor; the browser releases it automatically after ~1.5 s of trailing
+ * silence, and the tap remains an instant override.
  */
 export type InterviewClientFrame =
   | { type: "start" }
@@ -195,7 +195,16 @@ export type InterviewClientFrame =
   | { type: "text"; data: string }
   | { type: "end" };
 
-/** Gateway → browser (JSON text frames). Audio is base64 PCM16LE mono. */
+/**
+ * Gateway → browser (JSON text frames).
+ *
+ * Interviewer audio is the one exception: it arrives as a **binary** frame, not
+ * an event in this union — an 8-byte little-endian header
+ * (`[uint32 seq][uint32 sampleRate]`) followed by raw PCM16LE mono. It is the
+ * heaviest thing on the socket and base64-in-JSON cost a third more bytes plus
+ * an encode/decode on each side. `audio_done` still marks the end of a turn's
+ * audio and is still JSON.
+ */
 export type InterviewGatewayEvent =
   | {
       type: "ready";
@@ -212,7 +221,6 @@ export type InterviewGatewayEvent =
   | { type: "transcript"; role: "user"; text: string; final: boolean }
   | { type: "assistant_delta"; text: string }
   | { type: "assistant_text"; text: string }
-  | { type: "audio"; seq: number; sample_rate: number; data: string }
   | { type: "audio_done" }
   | { type: "interrupted" }
   /** The recording held no usable speech — prompt the candidate to try again. */
@@ -226,3 +234,4 @@ export type InterviewGatewayEvent =
 //   POST /upload/:token/chunk           raw video/webm chunk body (append)
 //   POST /upload/:token/photo           raw image/jpeg body (identity snapshot)
 //   POST /upload/:token/finalize        → uploads assembled recording to storage
+//   POST /prepare/:token                → pre-generates the blueprint (fire and forget)

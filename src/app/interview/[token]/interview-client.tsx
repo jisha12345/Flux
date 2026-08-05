@@ -119,11 +119,20 @@ export default function InterviewClient(props: InterviewClientProps) {
 
   const startMic = useCallback(() => {
     setMicError(null);
-    stream.initMic().catch(() => {
-      setMicError(
-        "Microphone access was blocked. Allow it in your browser, then retry."
-      );
-    });
+    stream
+      .initMic()
+      .then(() => {
+        // Open the gateway socket as soon as we have a mic. The blueprint, the
+        // STT socket and the TTS socket all warm up while the candidate is
+        // still checking their camera and taking their photo, instead of being
+        // the first thing they wait on once the room loads.
+        void stream.connect();
+      })
+      .catch(() => {
+        setMicError(
+          "Microphone access was blocked. Allow it in your browser, then retry."
+        );
+      });
   }, [stream]);
 
   const enterSetup = useCallback(() => {
@@ -215,8 +224,8 @@ export default function InterviewClient(props: InterviewClientProps) {
                 </h1>
                 <p className="mt-3 text-base text-zinc-400">
                   On behalf of{" "}
-                  <span className="font-medium text-zinc-200">{company}</span> —
-                  a relaxed voice conversation, at your pace.
+                  <span className="font-medium text-zinc-200">{company}</span>.
+                  A relaxed voice conversation, at your pace.
                 </p>
 
                 <div className="mt-6 flex flex-wrap gap-2">
@@ -239,7 +248,7 @@ export default function InterviewClient(props: InterviewClientProps) {
                     {
                       icon: Mic,
                       title: "You control the mic",
-                      text: "An AI interviewer asks the questions. Tap “Tap to speak” to answer, then tap again to send — so background noise never cuts you off. You can ask it to repeat a question at any time.",
+                      text: "An AI interviewer asks the questions. Tap “Tap to speak” to answer, then pause when you're done and it sends automatically. You can also tap again to send sooner. Nothing is heard until you tap, so background noise never cuts you off.",
                     },
                     {
                       icon: Video,
@@ -249,7 +258,7 @@ export default function InterviewClient(props: InterviewClientProps) {
                     {
                       icon: ShieldCheck,
                       title: "Evaluated fairly",
-                      text: "You're assessed only on job-related competencies — nothing else.",
+                      text: "You're assessed only on job-related competencies, nothing else.",
                     },
                   ].map(({ icon: Icon, title, text }) => (
                     <div key={title} className="flex gap-4 p-4">
@@ -346,7 +355,7 @@ export default function InterviewClient(props: InterviewClientProps) {
                   />
                 </svg>
                 <h1 className="mt-6 text-3xl font-semibold tracking-tight text-zinc-100 [text-wrap:balance]">
-                  Thanks {firstName} — you&rsquo;re all done
+                  Thanks {firstName}, you&rsquo;re all done
                 </h1>
                 <p className="mt-3 max-w-[44ch] text-base leading-relaxed text-zinc-400">
                   Your interview has been submitted. The {company} team will

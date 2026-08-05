@@ -68,9 +68,9 @@ function inviteEmailHtml(opts: {
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#1f2937;">
   <p style="font-size:15px;line-height:1.6;">Hi ${firstName},</p>
   <p style="font-size:15px;line-height:1.6;">
-    You've been invited to an AI-powered interview with <strong>Shiprocket</strong> for the role of
-    <strong>${opts.roleTitle}</strong>. It takes about <strong>${opts.durationMinutes} minutes</strong>
-    and you can do it whenever you're ready.
+    You've been invited to a first-round interview with <strong>Shiprocket</strong> for the role of
+    <strong>${opts.roleTitle}</strong>. You'll talk through your experience with an AI interviewer.
+    It takes about <strong>${opts.durationMinutes} minutes</strong>, and you can start whenever you're ready.
   </p>
   <p style="margin:28px 0;text-align:center;">
     <a href="${opts.interviewUrl}"
@@ -88,7 +88,7 @@ function inviteEmailHtml(opts: {
     <li>Use Google Chrome on a laptop or desktop.</li>
     <li>Allow camera and microphone access when prompted.</li>
   </ul>
-  <p style="font-size:14px;line-height:1.6;margin-top:24px;">Good luck!<br/>— Reqr by Shiprocket</p>
+  <p style="font-size:14px;line-height:1.6;margin-top:24px;">Good luck.<br/>Reqr by Shiprocket</p>
 </div>`.trim();
 }
 
@@ -192,6 +192,28 @@ export async function POST(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Warm the interview blueprint now rather than making the candidate wait for
+  // it on first connect. The gateway answers 202 immediately and generates in
+  // its own process, so this costs one local round trip; if it never lands, the
+  // session regenerates on connect exactly as before.
+  // `||`, not `??`: an env file with a bare `INTERVIEW_GATEWAY_URL=` yields ""
+  // and would otherwise disable prewarming with no error anywhere.
+  const gatewayUrl = (
+    process.env.INTERVIEW_GATEWAY_URL ||
+    process.env.NEXT_PUBLIC_INTERVIEW_GATEWAY_URL ||
+    ""
+  ).trim();
+  if (gatewayUrl) {
+    try {
+      await fetch(`${gatewayUrl.replace(/\/$/, "")}/prepare/${token}`, {
+        method: "POST",
+        signal: AbortSignal.timeout(3000),
+      });
+    } catch (err) {
+      console.error("AI interview blueprint prewarm failed:", err);
+    }
+  }
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin;
   const interviewUrl = `${appUrl.replace(/\/$/, "")}/interview/${token}`;
 
@@ -200,7 +222,7 @@ export async function POST(request: NextRequest) {
     try {
       await sendEmail({
         to: candidateEmail,
-        subject: `Your AI interview with Shiprocket — ${roleTitle}`,
+        subject: `Your interview with Shiprocket: ${roleTitle}`,
         html: inviteEmailHtml({
           candidateName,
           roleTitle,
