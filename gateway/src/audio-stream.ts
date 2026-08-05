@@ -46,6 +46,26 @@ function wsUrl(path: string): string {
 class SignalQueue {
   private items: string[] = [];
   private waiter: { resolve: (v: string | null) => void; timer: ReturnType<typeof setTimeout> } | null = null;
+  private generation = 0;
+
+  /** Bumped by `reset`. A consumer that captured an older value is stale and
+   *  must stop reading — the segments arriving now belong to someone else. */
+  get gen(): number {
+    return this.generation;
+  }
+
+  /** A new utterance has started: drop buffered segments and release any
+   *  pending `get`, so an in-flight consumer cannot eat the new segments. */
+  reset(): void {
+    this.items = [];
+    this.generation += 1;
+    const w = this.waiter;
+    if (w) {
+      this.waiter = null;
+      clearTimeout(w.timer);
+      w.resolve(null);
+    }
+  }
 
   put(item: string): void {
     if (this.waiter) {
@@ -173,7 +193,7 @@ export class SttStreamSession {
 
   /** Drop transcript segments from a previous utterance (call on speech start). */
   reset(): void {
-    this.queue.drainNow();
+    this.queue.reset();
   }
 
   /**
@@ -207,8 +227,17 @@ export class SttStreamSession {
     void this.ensureConnected();
   }
 
-  /** Finalize the utterance and return the full transcript. */
+  /**
+   * Finalize the utterance and return the full transcript.
+   *
+   * Bails out if `reset()` lands mid-flush — that means the candidate re-opened
+   * the mic while we were still waiting on Sarvam, and every segment from here
+   * belongs to their *new* answer. Without the generation check this consumer
+   * would swallow the opening words of that answer and the interviewer would
+   * reply to a sentence with its beginning missing.
+   */
   async flush(timeoutMs = 4000, graceMs = 50): Promise<string> {
+    const gen = this.queue.gen;
     const parts: string[] = [...this.queue.drainNow()];
     const hadPreflush = parts.length > 0;
 
@@ -223,6 +252,7 @@ export class SttStreamSession {
     }
 
     const first = await this.queue.get(timeoutMs);
+    if (this.queue.gen !== gen) return "";
     if (first) parts.push(first);
 
     // Common single-segment utterance pays a 10 ms check; a multi-segment one
@@ -230,6 +260,7 @@ export class SttStreamSession {
     const tailGrace = hadPreflush ? graceMs : 10;
     while (true) {
       const next = await this.queue.get(tailGrace);
+      if (this.queue.gen !== gen) return "";
       if (next === null) break;
       parts.push(next);
     }

@@ -62,6 +62,11 @@ Consequences that hold today:
   actually drained, so the label never goes live over the tail of a question.
 - A tap that captured no voiced audio returns `no_speech` instead of sending an
   empty turn to the model.
+- Re-opening the mic while the previous turn's STT flush is still in flight is
+  safe. `SignalQueue` carries a generation counter that `reset()` bumps, so the
+  stale flush cannot consume the *new* utterance's first segment — which used to
+  cost the candidate the opening words of the answer they had just started, and
+  looked exactly like a transcription fault.
 
 ### Why it feels fast
 

@@ -524,7 +524,7 @@ export function useInterviewStream(token: string): InterviewStreamApi {
           stopPlayback();
           return;
         case "no_speech":
-          setHint("I didn't catch that. Tap Speak, answer, then tap again to send.");
+          setHint("I didn't catch that — tap Speak and give it another go.");
           return;
         case "section":
           setSection({ id: ev.id, title: ev.title, index: ev.index, total: ev.total });
