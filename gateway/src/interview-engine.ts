@@ -223,19 +223,65 @@ export interface StreamTurnOptions {
   signal?: AbortSignal;
 }
 
+const EPHEMERAL = { type: "ephemeral" } as const;
+
+/**
+ * Two cache breakpoints per turn:
+ *   - the system prompt, which never changes for the life of the interview;
+ *   - the last message, which walks forward one turn at a time so each request
+ *     reads the whole prior conversation instead of reprocessing it.
+ * Everything renders as explicit text blocks so the bytes are identical whether
+ * a message currently carries the breakpoint or not.
+ */
+function cachedMessages(history: HistoryMessage[]): Anthropic.MessageParam[] {
+  const last = history.length - 1;
+  return history.map((message, i) => ({
+    role: message.role,
+    content: [
+      {
+        type: "text" as const,
+        text: message.content,
+        ...(i === last ? { cache_control: EPHEMERAL } : {}),
+      },
+    ],
+  }));
+}
+
 /** Stream one interviewer turn; resolves with the full raw text (markers included). */
 export async function streamTurn(options: StreamTurnOptions): Promise<string> {
+  const startedAt = Date.now();
+  let ttft = -1;
+
   const stream = anthropic.messages.stream(
     {
       model: env.INTERVIEW_MODEL,
       max_tokens: 400,
-      system: options.system,
-      messages: options.history,
+      // Adaptive thinking is ON by default on Claude 5 models, and `max_tokens`
+      // caps thinking + reply text *together*. That cost us twice: the thinking
+      // tokens are silent, so nothing reached TTS until they finished, and a
+      // turn that thought past 400 tokens came back with no text block at all —
+      // the empty interviewer turn the session still guards against. A warm
+      // acknowledgement plus one question needs no deliberation.
+      thinking: { type: "disabled" },
+      output_config: { effort: "low" },
+      system: [{ type: "text", text: options.system, cache_control: EPHEMERAL }],
+      messages: cachedMessages(options.history),
     },
     { signal: options.signal },
   );
-  stream.on("text", (delta) => options.onDelta(delta));
+  stream.on("text", (delta) => {
+    if (ttft < 0) ttft = Date.now() - startedAt;
+    options.onDelta(delta);
+  });
   const final = await stream.finalMessage();
+
+  const usage = final.usage;
+  console.log(
+    `[llm] ttft=${ttft}ms total=${Date.now() - startedAt}ms ` +
+      `in=${usage.input_tokens} cache_read=${usage.cache_read_input_tokens ?? 0} ` +
+      `cache_write=${usage.cache_creation_input_tokens ?? 0} out=${usage.output_tokens} ` +
+      `stop=${final.stop_reason}`,
+  );
   // Claude 5 thinks adaptively: content[0] is often a thinking block, and
   // reading it as the answer returned "" — which emptied the persisted turn and
   // then poisoned the history with an empty assistant message, 400-ing every

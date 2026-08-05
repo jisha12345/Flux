@@ -77,6 +77,13 @@ history and CloudTrail.
 
 ## Secrets
 
+Production values live in **`.env.poc`** at the repo root (gitignored).
+`deploy-poc-env.sh` reads that in preference to `.env.local`, because
+`.env.local` routinely points at a local Supabase stack during development —
+shipping it would aim production at `127.0.0.1`. The script refuses to push any
+config whose Supabase URL is localhost, so keep the two files separate rather
+than editing one back and forth.
+
 Never in git. Two files live on the box and survive every deploy:
 
 - `/home/ubuntu/apps/flux/.env.production` — app (Supabase, Anthropic, Sarvam, public URLs)
@@ -93,6 +100,23 @@ them, and they fall back to `localhost:3000` if unset.
 Supabase Auth has its own **Site URL** and redirect allowlist in the dashboard,
 independent of these. If a magic link ever lands on the wrong host, that is the
 setting to check.
+
+## Logging in
+
+The recruiter login (`/employer/login`) offers a password form **only** for the
+master email hardcoded in `src/app/employer/login/page.tsx`
+(`jisha.bawa@shiprocket.com`); every other address is offered a magic link
+instead. Passwords are not stored in this repo — ask the team, or reset one
+with the Supabase admin API:
+
+```bash
+curl -X PUT "$SUPABASE_URL/auth/v1/admin/users/<user-id>" \
+  -H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY" \
+  -H "Content-Type: application/json" -d '{"password":"..."}'
+```
+
+Magic links only work if Supabase Auth's **Site URL** matches the host you are
+logging in from — see `database.md`.
 
 ## Operating
 
@@ -123,3 +147,20 @@ curl -X POST https://jisha.ai-rocket-experiments.com/gw/evaluate/<token>
 - **Never run `npm run build` while `next dev` is running** against the same
   checkout; the production build overwrites `.next` and the dev server starts
   500ing on missing chunks.
+- **CodeBuild runs phase commands with `/bin/sh`.** `set -o pipefail` is an
+  illegal option there and kills the phase with exit 2 before anything runs —
+  the buildspec sets `shell: bash`.
+- **SSM RunCommand gives you root with no `$HOME`**, so `git config --global`
+  fails with *"fatal: $HOME not set"*. `remote-deploy.sh` sets it explicitly and
+  passes the deploy user's home on every `runuser`.
+- **`git push` to CodeCommit suddenly 403s?** macOS's `osxkeychain` helper is
+  configured globally in `/opt/homebrew/etc/gitconfig` and caches the
+  credential-helper's output, but CodeCommit credentials are short-lived — so
+  it replays an expired one. Clear it and pin this repo to the AWS helper only:
+
+  ```bash
+  security delete-internet-password -s git-codecommit.ap-south-1.amazonaws.com
+  git config --local --unset-all credential.helper
+  git config --local --add credential.helper ""      # reset inherited helpers
+  git config --local --add credential.helper '!aws codecommit credential-helper $@'
+  ```
