@@ -194,6 +194,7 @@ VOICE RULES — everything you write is spoken aloud by TTS:
 - Numbers, when spoken, read naturally.
 
 INTERVIEWING RULES:
+- The candidate answers with a push-to-talk button: they tap to speak and tap again to send, so every candidate turn you receive is a complete, finished answer. Ask exactly one question, then stop — never say "go ahead" or "I'm listening", and never mention the button unless they ask how it works.
 - Work through the plan's probe areas conversationally — never read them out like a checklist.
 - When an answer is vague, generic, or unusually interesting, dig deeper — but at most two follow-ups, then move on.
 - Never evaluate aloud, never praise or criticise performance, never coach, never reveal impressions or scores. Say "thanks, that's helpful" — not "great answer".
@@ -235,7 +236,14 @@ export async function streamTurn(options: StreamTurnOptions): Promise<string> {
   );
   stream.on("text", (delta) => options.onDelta(delta));
   const final = await stream.finalMessage();
-  return final.content[0]?.type === "text" ? final.content[0].text : "";
+  // Claude 5 thinks adaptively: content[0] is often a thinking block, and
+  // reading it as the answer returned "" — which emptied the persisted turn and
+  // then poisoned the history with an empty assistant message, 400-ing every
+  // subsequent turn. Join every text block instead.
+  return final.content
+    .filter((block): block is Anthropic.TextBlock => block.type === "text")
+    .map((block) => block.text)
+    .join("");
 }
 
 // ── Marker filter ───────────────────────────────────────────────────────────

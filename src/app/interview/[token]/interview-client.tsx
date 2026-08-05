@@ -238,8 +238,8 @@ export default function InterviewClient(props: InterviewClientProps) {
                   {[
                     {
                       icon: Mic,
-                      title: "A natural conversation",
-                      text: "You'll talk with an AI interviewer. Just speak normally — you can interrupt or ask it to repeat a question at any time.",
+                      title: "You control the mic",
+                      text: "An AI interviewer asks the questions. Tap “Tap to speak” to answer, then tap again to send — so background noise never cuts you off. You can ask it to repeat a question at any time.",
                     },
                     {
                       icon: Video,

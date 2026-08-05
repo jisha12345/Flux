@@ -99,7 +99,8 @@ export function orbStatusWord(status: InterviewStreamStatus): string {
     case "ready":
       return "Starting…";
     case "listening":
-      return "Listening…";
+      // Push-to-talk: nothing is being heard until the candidate taps.
+      return "Your turn";
     case "thinking":
       return "Thinking…";
     case "speaking":

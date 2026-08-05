@@ -9,7 +9,16 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Loader2, PhoneOff, RefreshCw, Repeat, X } from "lucide-react";
+import {
+  Check,
+  Loader2,
+  Mic,
+  PhoneOff,
+  RefreshCw,
+  Repeat,
+  Send,
+  X,
+} from "lucide-react";
 import { InterviewerOrb, orbStatusWord } from "./orb";
 import {
   GATEWAY_URL,
@@ -39,12 +48,18 @@ export function InterviewRoom({
   const {
     status,
     meta,
+    micOpen,
+    canSpeak,
+    hint,
     caption,
     transcript,
     section,
     error,
+    micLevel,
     outputLevel,
     connect,
+    openMic,
+    closeMic,
     start,
     repeat,
     end,
@@ -61,6 +76,7 @@ export function InterviewRoom({
   const startTimeRef = useRef<number | null>(null);
 
   const [elapsed, setElapsed] = useState(0);
+  const [answerSeconds, setAnswerSeconds] = useState(0);
   const [recording, setRecording] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [ending, setEnding] = useState(false);
@@ -194,6 +210,52 @@ export function InterviewRoom({
     }, 1000);
     return () => clearInterval(id);
   }, []);
+
+  // ── Push-to-talk ──
+  const busy = ending || finalizing;
+  const micDisabled = !micOpen && (!canSpeak || busy);
+
+  const toggleMic = useCallback(() => {
+    if (busy) return;
+    if (micOpen) closeMic();
+    else if (canSpeak) void openMic();
+  }, [busy, canSpeak, closeMic, micOpen, openMic]);
+
+  // Space is the keyboard equivalent of the tap. preventDefault also stops the
+  // focused button from firing a second toggle on keyup.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== "Space" || event.repeat || event.metaKey || event.ctrlKey) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      toggleMic();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleMic]);
+
+  // Answer timer — reassures the candidate that they're actually being heard.
+  useEffect(() => {
+    if (!micOpen) {
+      setAnswerSeconds(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setAnswerSeconds(0);
+    const id = setInterval(
+      () => setAnswerSeconds(Math.floor((Date.now() - startedAt) / 1000)),
+      500
+    );
+    return () => clearInterval(id);
+  }, [micOpen]);
 
   const handleEnd = useCallback(() => {
     setConfirmEnd(false);
@@ -342,7 +404,13 @@ export function InterviewRoom({
             className="text-sm font-medium tracking-wide text-emerald-300/90"
             aria-live="polite"
           >
-            {finalizing ? "Wrapping up…" : ending ? "Ending…" : orbStatusWord(status)}
+            {finalizing
+              ? "Wrapping up…"
+              : ending
+                ? "Ending…"
+                : micOpen
+                  ? "Your turn — I'm listening"
+                  : orbStatusWord(status)}
           </p>
         </div>
 
@@ -370,11 +438,74 @@ export function InterviewRoom({
         </div>
       </div>
 
+      {/* ── Push-to-talk ── */}
+      <div className="flex flex-col items-center gap-3 px-5 pb-5">
+        <button
+          type="button"
+          onClick={toggleMic}
+          disabled={micDisabled}
+          aria-pressed={micOpen}
+          aria-label={micOpen ? "Send your answer" : "Tap to speak"}
+          className={cx(
+            "relative inline-flex h-14 min-w-[16rem] items-center justify-center gap-2.5 rounded-full px-8",
+            "text-sm font-semibold transition-colors duration-200",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B1210]",
+            micOpen
+              ? "bg-red-500 text-white hover:bg-red-400 focus-visible:ring-red-300/70"
+              : "bg-emerald-400 text-[#06251a] hover:bg-emerald-300 focus-visible:ring-emerald-300/70",
+            "disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-zinc-500"
+          )}
+        >
+          {/* Live mic energy — proof the room is actually being heard. */}
+          {micOpen && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 rounded-full ring-2 ring-red-400/50"
+              style={{
+                transform: `scale(${(1 + Math.min(0.07, micLevel * 0.5)).toFixed(3)})`,
+                transition: "transform 90ms linear",
+              }}
+            />
+          )}
+          {micOpen ? (
+            <>
+              <Send className="h-4 w-4" />
+              Tap to send
+              <span className="font-mono text-xs tabular-nums opacity-80">
+                {formatElapsed(answerSeconds)}
+              </span>
+            </>
+          ) : (
+            <>
+              <Mic className="h-4 w-4" />
+              Tap to speak
+            </>
+          )}
+        </button>
+
+        <p
+          className={cx(
+            "min-h-4 text-center text-xs",
+            hint ? "text-amber-200" : "text-zinc-400"
+          )}
+          aria-live="polite"
+        >
+          {hint ??
+            (micOpen
+              ? "Recording — tap again when you've finished your answer"
+              : canSpeak
+                ? "Tap, or press Space, when you're ready to answer"
+                : status === "thinking"
+                  ? "One moment…"
+                  : "")}
+        </p>
+      </div>
+
       {/* ── Bottom controls ── */}
       <div className="flex items-center justify-center gap-3 px-5 pb-6 sm:pb-8">
         <GhostButton
           onClick={repeat}
-          disabled={!live || ending}
+          disabled={!live || micOpen || busy}
           className="h-10 px-4 text-xs"
         >
           <Repeat className="h-3.5 w-3.5" /> Repeat question
@@ -395,7 +526,7 @@ export function InterviewRoom({
 
       {/* ── Candidate PiP ── */}
       {cameraStream && (
-        <div className="pointer-events-none fixed bottom-20 right-5 z-10 sm:bottom-24 sm:right-8">
+        <div className="pointer-events-none fixed bottom-40 right-5 z-10 sm:bottom-44 sm:right-8">
           <video
             ref={pipRef}
             autoPlay

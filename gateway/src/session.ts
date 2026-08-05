@@ -63,6 +63,8 @@ export class InterviewSession {
 
   private micOpen = false;
   private voicedFrames = 0;
+  /** A candidate turn whose reply came back empty — folded into the next turn. */
+  private pendingUserContent = "";
 
   private sectionIndex = -1;
   private startedAtMs = 0;
@@ -344,7 +346,11 @@ export class InterviewSession {
     }
     this.send({ type: "status", data: "thinking" });
 
-    const content = synthetic ? userText : `${this.stateNote()}\n\n${userText}`;
+    const turnText = synthetic ? userText : `${this.stateNote()}\n\n${userText}`;
+    const content = this.pendingUserContent
+      ? `${this.pendingUserContent}\n\n${turnText}`
+      : turnText;
+    this.pendingUserContent = "";
     const history: HistoryMessage[] = [...this.history, { role: "user", content }];
 
     await this.ensureTts();
@@ -415,10 +421,19 @@ export class InterviewSession {
       .replace(/\[SECTION:[a-z0-9_-]+\]/gi, "")
       .replace(/\[END_INTERVIEW\]/gi, "")
       .trim();
-    this.history.push({ role: "user", content }, { role: "assistant", content: cleanText });
-    if (!endRequested) this.lastQuestion = cleanText;
-    const seq = this.seq++;
-    void insertTurn(this.row.id, seq, "interviewer", cleanText, this.currentSectionId()).catch(() => {});
+    // An empty assistant message makes the *next* request 400 and takes the
+    // rest of the interview down with it — keep the history well-formed.
+    if (cleanText) {
+      this.history.push({ role: "user", content }, { role: "assistant", content: cleanText });
+      if (!endRequested) this.lastQuestion = cleanText;
+      const seq = this.seq++;
+      void insertTurn(this.row.id, seq, "interviewer", cleanText, this.currentSectionId()).catch(() => {});
+    } else {
+      // Carry the candidate's answer into the next turn rather than leaving
+      // history ending on a user message.
+      console.warn("[session] empty interviewer turn — carrying the answer forward");
+      this.pendingUserContent = content;
+    }
 
     await speakChain;
     if (spoke && this.tts && myTurn === this.turnId) {
