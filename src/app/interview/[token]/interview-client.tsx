@@ -369,7 +369,7 @@ export default function InterviewClient(props: InterviewClientProps) {
           </main>
 
           <footer className="pt-4 text-center text-xs text-zinc-500">
-            Powered by Hyr · AI interviews, evaluated fairly
+            Powered by Reqr · AI interviews, evaluated fairly
           </footer>
         </div>
       )}

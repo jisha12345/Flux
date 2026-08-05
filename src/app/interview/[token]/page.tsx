@@ -6,7 +6,7 @@ import InterviewClient from "./interview-client";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "AI Interview · Hyr",
+  title: "AI Interview · Reqr",
   robots: { index: false, follow: false },
 };
 
@@ -32,7 +32,7 @@ function StateScreen({
       />
       <header className="relative mx-auto flex w-full max-w-4xl items-baseline gap-3">
         <span className="text-xl font-semibold tracking-tight text-emerald-400">
-          Hyr
+          Reqr
         </span>
         <span className="h-4 w-px self-center bg-white/15" aria-hidden />
         <span className="text-sm text-zinc-400">AI Interview</span>
@@ -75,7 +75,7 @@ function StateScreen({
         </div>
       </main>
       <footer className="relative pt-4 text-center text-xs text-zinc-500">
-        Powered by Hyr
+        Powered by Reqr
       </footer>
     </div>
   );

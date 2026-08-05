@@ -74,7 +74,7 @@ export function BrandHeader({ right }: { right?: ReactNode }) {
     <header className="flex items-center justify-between">
       <div className="flex items-baseline gap-3">
         <span className="text-xl font-semibold tracking-tight text-emerald-400">
-          Hyr
+          Reqr
         </span>
         <span className="h-4 w-px self-center bg-white/15" aria-hidden />
         <span className="text-sm text-zinc-400">AI Interview</span>

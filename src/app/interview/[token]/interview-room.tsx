@@ -298,7 +298,7 @@ export function InterviewRoom({
       <div className="flex items-center justify-between gap-4 px-5 py-4 sm:px-8">
         <div className="flex shrink-0 items-baseline gap-3">
           <span className="text-lg font-semibold tracking-tight text-emerald-400">
-            Hyr
+            Reqr
           </span>
           <span className="hidden text-xs text-zinc-400 sm:block">
             {meta?.role_title ?? "AI Interview"}

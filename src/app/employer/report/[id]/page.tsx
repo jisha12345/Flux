@@ -21,7 +21,7 @@ const notoSerif = Noto_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "Hyr Interview Results: Candidate Assessment",
+  title: "Reqr Interview Results: Candidate Assessment",
   robots: { index: false },
 };
 
@@ -74,7 +74,7 @@ function StateCard({ children }: { children: ReactNode }) {
             color: HYR.primaryDark,
           }}
         >
-          Hyr Interview Results
+          Reqr Interview Results
         </p>
         {children}
       </div>
