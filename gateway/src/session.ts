@@ -62,6 +62,9 @@ interface TurnTiming {
   fillerMs: number;
   sttMs: number;
   firstDeltaMs: number;
+  /** When the model stopped generating. `first_audio - llm_done` is the TTS
+   *  share of the wait, which is otherwise indistinguishable from a slow model. */
+  llmDoneMs: number;
   logged: boolean;
 }
 
@@ -77,6 +80,8 @@ export class InterviewSession {
   private turnActive = false;
   private audioOpen = false;
   private audioSeq = 0;
+  /** Whether this turn has put a single audible byte on the wire yet. */
+  private spokeAudio = false;
   private started = false;
   private completed = false;
   private closed = false;
@@ -138,6 +143,13 @@ export class InterviewSession {
     if (this.row.started_at) this.startedAtMs = new Date(this.row.started_at).getTime();
 
     await Promise.allSettled([this.stt.prewarm(), this.ensureTts()]);
+
+    // Warm the acknowledgement bank now, while the candidate is still on the
+    // device check. It used to warm after the greeting, which put six sequential
+    // Sarvam handshakes in the same window as the first real answer — and the
+    // clips aren't needed until the first `mic_close` anyway. Not awaited: it
+    // must never hold up `ready`.
+    this.spawn(this.fillers.warm());
 
     const blueprint = this.row.blueprint!;
     this.send({
@@ -229,7 +241,10 @@ export class InterviewSession {
     this.transcriptPreview = "";
     this.stt.reset();
     this.spawn(this.stt.prewarm()); // the socket may have gone idle between turns
-    this.spawn(this.ensureTts());
+    // No TTS prewarm here on purpose — an answer routinely runs past Sarvam's
+    // 60 s idle limit, so a socket opened now would be reaped before the reply
+    // it was opened for. `closeMic` warms it instead, when the reply is seconds
+    // away rather than minutes.
     this.send({ type: "status", data: "listening" });
   }
 
@@ -255,9 +270,14 @@ export class InterviewSession {
       fillerMs: -1,
       sttMs: -1,
       firstDeltaMs: -1,
+      llmDoneMs: -1,
       logged: false,
     };
     this.send({ type: "status", data: "thinking" });
+    // The one moment worth prewarming TTS: the reply is a few seconds out, well
+    // inside Sarvam's 60 s idle window. Revives the socket if it was reaped
+    // while the candidate was talking.
+    this.spawn(this.ensureTts());
     // A real interviewer says "got it" while they think, rather than going
     // silent for a second and a half. This clip is already synthesized, so it
     // reaches the candidate's speakers before STT has even finished flushing.
@@ -382,6 +402,7 @@ export class InterviewSession {
   private async runTurn(userText: string, myTurn: number, synthetic: boolean): Promise<void> {
     this.turnActive = true;
     this.audioSeq = 0;
+    this.spokeAudio = false;
 
     if (!synthetic) {
       this.transcriptPreview = userText;
@@ -417,10 +438,7 @@ export class InterviewSession {
           .then(() => (myTurn === this.turnId ? tts.speak(cleaned) : undefined))
           .catch(() => {});
       }
-      if (!spoke) {
-        spoke = true;
-        this.send({ type: "status", data: "speaking" });
-      }
+      spoke = true;
       this.send({ type: "assistant_text", text: cleaned });
     };
 
@@ -464,6 +482,9 @@ export class InterviewSession {
     }
 
     if (myTurn !== this.turnId) return; // barged in mid-turn
+    if (this.turnTiming && this.turnTiming.llmDoneMs < 0) {
+      this.turnTiming.llmDoneMs = Date.now() - this.turnTiming.micClosedAt;
+    }
     filter.flush();
     const tail = chunker.flush();
     if (tail) speakSentence(tail);
@@ -499,14 +520,14 @@ export class InterviewSession {
     // null out the session the new turn is already speaking through.
     if (myTurn !== this.turnId) return;
     this.tts = null;
-    this.spawn(this.ensureTts()); // prewarm for the next turn
+    // Deliberately no prewarm for the next turn: the candidate now thinks and
+    // answers, which routinely exceeds Sarvam's 60 s idle limit, so the socket
+    // would be reaped and the reconnect paid anyway — after logging a 408 that
+    // looked like a real fault. `closeMic` opens it at the right moment.
 
     this.turnActive = false;
     this.audioOpen = false;
     this.send({ type: "audio_done" });
-    // Warm the acknowledgement bank once the greeting is out — synthesizing it
-    // any earlier would compete with the audio the candidate is waiting on.
-    this.spawn(this.fillers.warm());
 
     const overHardCap =
       this.startedAtMs > 0 &&
@@ -544,7 +565,7 @@ export class InterviewSession {
     this.turnActive = true;
     this.audioOpen = true;
     this.audioSeq = 0;
-    this.send({ type: "status", data: "speaking" });
+    this.spokeAudio = false; // `emitAudio` announces "speaking" once audio lands
     this.send({ type: "assistant_text", text: line });
     this.send({ type: "assistant_delta", text: line });
 
@@ -603,7 +624,11 @@ export class InterviewSession {
   // ── plumbing ──────────────────────────────────────────────────────────────
 
   private ensureTts(): Promise<void> {
-    if (this.tts) return Promise.resolve();
+    // `prewarm` is a no-op on a live socket and reconnects a reaped one, so an
+    // existing session still gets revived. Returning early here instead meant a
+    // socket Sarvam had already closed sat around looking healthy until the
+    // reply itself paid for the reconnect.
+    if (this.tts) return this.tts.prewarm();
     const tts = new TtsStreamSession(this.row.language, {
       // Ownership check: an orphaned session (barge-in, superseded turn) can
       // still reconnect on a queued speak() — its audio must never reach the
@@ -619,13 +644,28 @@ export class InterviewSession {
   private emitAudio(pcm: Uint8Array, sampleRate: number): void {
     if (!this.audioOpen || pcm.byteLength === 0) return;
 
+    // "Speaking" is announced here, on the first audible byte — not when the
+    // first sentence was handed to TTS. Announcing it at queue time meant the
+    // candidate watched a speaking indicator through however long synthesis
+    // took, which reads as the interviewer having frozen mid-sentence; and if
+    // TTS then failed outright, the turn had claimed to speak and never did.
+    if (!this.spokeAudio) {
+      this.spokeAudio = true;
+      this.send({ type: "status", data: "speaking" });
+    }
+
     const timing = this.turnTiming;
     if (timing && !timing.logged) {
       timing.logged = true;
+      // `llm_done=streaming` is the healthy case: TTS got going before the model
+      // finished. A number means audio only started afterwards, and the gap to
+      // first_audio is time spent purely in TTS — the one thing the old log
+      // could not distinguish from a slow model.
+      const llmDone = timing.llmDoneMs < 0 ? "streaming" : `${timing.llmDoneMs}ms`;
       console.log(
         `[turn] first_audio=${Date.now() - timing.micClosedAt}ms ` +
           `filler=${timing.fillerMs}ms stt_flush=${timing.sttMs}ms ` +
-          `first_token=${timing.firstDeltaMs}ms`,
+          `first_token=${timing.firstDeltaMs}ms llm_done=${llmDone}`,
       );
     }
     this.emitPcm(pcm, sampleRate);

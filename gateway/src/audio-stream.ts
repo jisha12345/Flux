@@ -28,6 +28,21 @@ import { env } from "./env.js";
 
 const STT_SAMPLE_RATE = 16000;
 
+/**
+ * Cap on a Sarvam handshake. A healthy connect is ~220 ms.
+ *
+ * This is not belt-and-braces: `ensureConnected` hands the *same* in-flight
+ * promise to every caller, so one hung handshake parks every queued `speak()`
+ * behind it — including a prewarm nobody is awaiting, whose stall the next turn
+ * then inherits. Failing fast lets the following call retry on a fresh socket
+ * instead of waiting out a connect that is never going to land.
+ */
+const CONNECT_TIMEOUT_MS = 4000;
+
+/** Sarvam closes a socket that has received nothing for 60 s (error code 408).
+ *  Anything prewarmed further ahead than this is already dead on arrival. */
+export const SARVAM_IDLE_TIMEOUT_MS = 60_000;
+
 function rawToString(data: RawData): string {
   if (typeof data === "string") return data;
   if (Array.isArray(data)) return Buffer.concat(data).toString("utf8");
@@ -150,7 +165,16 @@ export class SttStreamSession {
   private connect(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(this.url, { headers: { "Api-Subscription-Key": env.SARVAM_API_KEY } });
+      const timer = setTimeout(() => {
+        try {
+          ws.terminate();
+        } catch {
+          /* already gone */
+        }
+        reject(new Error("Sarvam STT connect timed out"));
+      }, CONNECT_TIMEOUT_MS);
       ws.on("open", () => {
+        clearTimeout(timer);
         this.ws = ws;
         const pending = this.outbound;
         this.outbound = [];
@@ -168,6 +192,7 @@ export class SttStreamSession {
         if (this.ws === ws) this.ws = null;
       });
       ws.on("error", (err) => {
+        clearTimeout(timer);
         if (this.ws === ws) this.ws = null;
         reject(err instanceof Error ? err : new Error("Sarvam STT socket error"));
       });
@@ -347,7 +372,16 @@ export class TtsStreamSession {
   private connect(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(this.url, { headers: { "api-subscription-key": env.SARVAM_API_KEY } });
+      const timer = setTimeout(() => {
+        try {
+          ws.terminate();
+        } catch {
+          /* already gone */
+        }
+        reject(new Error("Sarvam TTS connect timed out"));
+      }, CONNECT_TIMEOUT_MS);
       ws.on("open", () => {
+        clearTimeout(timer);
         this.ws = ws;
         this.chain = Promise.resolve();
         try {
@@ -365,6 +399,7 @@ export class TtsStreamSession {
         if (this.ws === ws) this.ws = null;
       });
       ws.on("error", (err) => {
+        clearTimeout(timer);
         if (this.ws === ws) this.ws = null;
         reject(err instanceof Error ? err : new Error("Sarvam TTS socket error"));
       });
@@ -391,8 +426,15 @@ export class TtsStreamSession {
       // Sarvam rejects a bad config with an error frame and then simply never
       // sends `final`, so this used to surface only as a 20s flush timeout and
       // a mute interviewer. Say so, and stop waiting.
+      //
+      // Drop the socket here rather than waiting for `close`: after the frame
+      // it is dead but still reports OPEN, and `ensureConnected` trusts
+      // readyState — so a `speak()` landing in that window writes the reply
+      // into a socket that will never answer, and the turn goes out silent.
       console.error(`[tts] Sarvam rejected the stream: ${raw.slice(0, 300)}`);
-      this.finalResolve?.();
+      const resolveFinal = this.finalResolve;
+      this.reset();
+      resolveFinal?.();
     }
   }
 

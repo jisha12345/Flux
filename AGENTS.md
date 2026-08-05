@@ -46,6 +46,16 @@ sources from **CodeCommit**. Don't assume Vercel is the target.
   `max_tokens` therefore returns zero text blocks when the model deliberates —
   which reads as a mystery empty response, not as truncation. Live voice turns
   pass `thinking: {type: "disabled"}` for this reason as much as for latency.
+- **Sarvam reaps any socket idle for 60 s** (an `error` frame, code 408). So a
+  prewarm is only useful if it lands within 60 s of the thing it's warming for —
+  warming "as early as possible" opens sockets that are dead on arrival and logs
+  408s that read like real faults. Cap every connect, too: `ensureConnected`
+  shares one in-flight promise, so a single hung handshake parks every queued
+  caller behind it, including turns that never opted into waiting.
+- **A status must describe what the candidate perceives, not what the server
+  queued.** `speaking` is emitted on the first audible byte; emitting it when
+  text was handed to TTS showed a speaking indicator over seconds of silence,
+  and over turns that never made a sound at all.
 - **Public API routes that insert must use `createServiceClient()`.** `anon`
   can INSERT but not SELECT, so `insert().select()` trips RLS. Adding an anon
   SELECT policy would leak the whole table — don't.

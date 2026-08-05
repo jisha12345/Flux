@@ -91,21 +91,46 @@ Nothing in the turn waits for the stage before it to finish:
   are all warm before the room renders. The blueprint itself is normally
   generated at link creation (`POST /prepare/:token`).
 
+**Prewarm on a 60-second clock.** Sarvam closes any socket that has received
+nothing for 60 s, with an `error` frame carrying code 408 — measured, not
+guessed. That makes prewarm a matter of *when*, not *more*: a TTS socket opened
+when the candidate starts answering is usually dead by the time they finish, so
+the reply pays the reconnect anyway and logs a 408 that reads like a fault.
+TTS is therefore warmed at `mic_close`, when the reply is seconds away, and
+**not** at `mic_open` or at the end of the previous turn. `ensureTts` re-warms an
+existing session rather than returning early, so a reaped socket is revived
+ahead of the reply instead of during it.
+
+Every Sarvam connect is capped at 4 s. `ensureConnected` hands the same
+in-flight promise to every caller, so one hung handshake parks every queued
+`speak()` behind it — including a fire-and-forget prewarm whose stall the next
+turn then silently inherits.
+
 And when it isn't fast, it doesn't sound dead: a bank of short acknowledgements
 ("Got it.", "Right.") is synthesized once per session and one plays the instant
 the turn is handed back, covering the STT + LLM + TTS gap the way a human
-interviewer would. The bank is warmed *after* the greeting, so the first
-candidate turn may have no filler — that degrades to the old silence.
+interviewer would. The bank is warmed at **connect**, while the candidate is
+still on the device check. Warming it after the greeting instead put six
+sequential Sarvam handshakes in the same window as the first real answer.
+
+**`speaking` means audible.** The status is emitted on the first PCM byte that
+reaches the socket, not when text is handed to TTS. Announcing it at queue time
+meant the candidate watched a speaking indicator through however long synthesis
+took — and if TTS then failed outright, the turn had claimed to speak and never
+did. A turn that produces no audio now stays `thinking` until `audio_done`.
 
 **Measure, don't guess.** Every turn logs one line:
 
 ```
-[turn] first_audio=980ms filler=3ms stt_flush=310ms first_token=620ms
+[turn] first_audio=980ms filler=3ms stt_flush=310ms first_token=620ms llm_done=streaming
 [llm]  ttft=590ms total=1240ms in=42 cache_read=3180 cache_write=0 out=38 stop=end_turn
 ```
 
-`cache_read=0` across consecutive turns means something is invalidating the
-prefix — that is a bug, not a tuning opportunity.
+`llm_done=streaming` is the healthy case — TTS started before the model
+finished. A number there means audio only began afterwards, and the gap to
+`first_audio` is time spent purely in TTS; without that split a slow socket and
+a slow model look identical. `cache_read=0` across consecutive turns means
+something is invalidating the prefix — that is a bug, not a tuning opportunity.
 
 Sarvam quirks worth knowing: **a flushed TTS socket cannot be reused** (drop it
 and open a new one), and interviewer audio goes down the socket as **binary**
