@@ -1,0 +1,49 @@
+# CodeBuild "deploy" stage. It builds nothing — it ships infra/cicd/remote-deploy.sh
+# to the POC box over SSM RunCommand and waits for it to finish. The box pulls
+# the source itself from CodeCommit at DEPLOY_SHA.
+version: 0.2
+
+env:
+  variables:
+    DEPLOY_PATH: /home/ubuntu/apps/flux
+    DEPLOY_USER: ubuntu
+    APP_NAME: flux
+    APP_PORT: "3040"
+    DOMAIN: jisha.ai-rocket-experiments.com
+
+phases:
+  build:
+    commands:
+      - |
+        set -euo pipefail
+        echo "$DEPLOY_SHA" | grep -Eq '^[0-9a-f]{40}$' || { echo "DEPLOY_SHA malformed: $DEPLOY_SHA"; exit 1; }
+        echo "Deploying $DEPLOY_SHA to $TARGET_INSTANCE_ID"
+
+        SCRIPT_B64="$(base64 -w0 infra/cicd/remote-deploy.sh)"
+        CMD_ID="$(aws ssm send-command \
+          --instance-ids "$TARGET_INSTANCE_ID" \
+          --document-name AWS-RunShellScript \
+          --comment "flux deploy $DEPLOY_SHA" \
+          --timeout-seconds 1800 \
+          --parameters "commands=[\"export DEPLOY_SHA=$DEPLOY_SHA DEPLOY_PATH=$DEPLOY_PATH DEPLOY_USER=$DEPLOY_USER APP_NAME=$APP_NAME APP_PORT=$APP_PORT DOMAIN=$DOMAIN; echo $SCRIPT_B64 | base64 -d | bash\"]" \
+          --query Command.CommandId --output text)"
+        echo "SSM command: $CMD_ID"
+
+        for i in $(seq 1 150); do
+          sleep 10
+          STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" \
+            --instance-id "$TARGET_INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)"
+          echo "[$i] $STATUS"
+          case "$STATUS" in
+            Success|Failed|Cancelled|TimedOut) break ;;
+          esac
+        done
+
+        echo "----- remote stdout -----"
+        aws ssm get-command-invocation --command-id "$CMD_ID" \
+          --instance-id "$TARGET_INSTANCE_ID" --query StandardOutputContent --output text || true
+        echo "----- remote stderr -----"
+        aws ssm get-command-invocation --command-id "$CMD_ID" \
+          --instance-id "$TARGET_INSTANCE_ID" --query StandardErrorContent --output text || true
+
+        [ "$STATUS" = "Success" ] || { echo "remote deploy ended as $STATUS"; exit 1; }

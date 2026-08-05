@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
 
     const { data: candidates } = await supabase
       .from("candidates")
-      .select("name, ai_score, ai_summary, ai_dimensions")
+      .select("name:full_name, ai_score, ai_summary, ai_dimensions")
       .eq("job_id", job_id)
       .not("ai_score", "is", null)
       .order("ai_score", { ascending: false })

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "gateway": "npm --prefix gateway run dev"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

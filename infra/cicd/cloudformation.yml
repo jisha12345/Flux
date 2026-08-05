@@ -1,0 +1,275 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  CI/CD for the Flux AI interview POC on the shared poc-ec2 box.
+  CodeCommit (main) -> EventBridge -> CodePipeline -> CodeBuild -> SSM RunCommand,
+  where the instance git-pulls the commit and rebuilds itself.
+
+  Follows the miq-poc-cicd pattern but, like mailbox-ai-cicd, takes the target
+  instance as a parameter instead of creating one — the EC2 instance, its
+  security group, Elastic IP and instance profile are owned by miq-poc-cicd and
+  must not be redeclared here.
+
+Parameters:
+  AppName:
+    Type: String
+    Default: flux
+    Description: Prefix for all resource names. Must be globally unique per app.
+  RepositoryName:
+    Type: String
+    Default: flux
+    Description: Existing CodeCommit repository holding the app, with a main branch.
+  BranchName:
+    Type: String
+    Default: main
+  TargetInstanceId:
+    Type: AWS::EC2::Instance::Id
+    Description: The poc-ec2 instance to deploy onto.
+  TargetInstanceRoleName:
+    Type: String
+    Default: poc-ec2-instance
+    Description: >
+      IAM role name attached to the target instance's profile. This stack adds a
+      CodeCommit GitPull policy for THIS app's repo onto that existing role.
+  DeployPath:
+    Type: String
+    Default: /home/ubuntu/apps/flux
+  DeployUser:
+    Type: String
+    Default: ubuntu
+  AppPort:
+    Type: String
+    Default: "3040"
+  Domain:
+    Type: String
+    Default: jisha.ai-rocket-experiments.com
+
+Resources:
+  # Lets the instance pull this app's repo. Scoped to the one repository;
+  # additive to the shared role, which already has miq's equivalent policy.
+  InstanceCodeCommitPull:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub "poc-ec2-${AppName}-codecommit-pull"
+      Roles:
+        - !Ref TargetInstanceRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: codecommit:GitPull
+            Resource: !Sub "arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${RepositoryName}"
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-noncurrent
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+
+  DeployBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-codebuild-deploy"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codebuild.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${AppName}-deploy*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource: !Sub "${ArtifactBucket.Arn}/*"
+              # SendCommand is deliberately scoped to the one instance.
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${TargetInstanceId}"
+                  - !Sub "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+              - Effect: Allow
+                Action:
+                  - ssm:GetCommandInvocation
+                  - ssm:ListCommandInvocations
+                Resource: "*"
+
+  DeployProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${AppName}-deploy"
+      ServiceRole: !GetAtt DeployBuildRole.Arn
+      Artifacts: { Type: CODEPIPELINE }
+      TimeoutInMinutes: 40
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+        PrivilegedMode: false
+        EnvironmentVariables:
+          - Name: TARGET_INSTANCE_ID
+            Value: !Ref TargetInstanceId
+          - Name: DEPLOY_PATH
+            Value: !Ref DeployPath
+          - Name: DEPLOY_USER
+            Value: !Ref DeployUser
+          - Name: APP_NAME
+            Value: !Ref AppName
+          - Name: APP_PORT
+            Value: !Ref AppPort
+          - Name: DOMAIN
+            Value: !Ref Domain
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: infra/cicd/buildspec.deploy.yml
+
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-codepipeline"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: codepipeline.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: pipeline
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                  - s3:GetBucketVersioning
+                Resource:
+                  - !GetAtt ArtifactBucket.Arn
+                  - !Sub "${ArtifactBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - codecommit:GetBranch
+                  - codecommit:GetCommit
+                  - codecommit:GetRepository
+                  - codecommit:UploadArchive
+                  - codecommit:GetUploadArchiveStatus
+                  - codecommit:CancelUploadArchive
+                Resource: !Sub "arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${RepositoryName}"
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource: !GetAtt DeployProject.Arn
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub "${AppName}-deploy"
+      RoleArn: !GetAtt PipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              Namespace: SourceVariables
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeCommit
+                Version: "1"
+              Configuration:
+                RepositoryName: !Ref RepositoryName
+                BranchName: !Ref BranchName
+                # EventBridge drives the pipeline; polling would double-trigger.
+                PollForSourceChanges: "false"
+              OutputArtifacts:
+                - Name: SourceOutput
+        - Name: Deploy
+          Actions:
+            - Name: Deploy
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              Configuration:
+                ProjectName: !Ref DeployProject
+                EnvironmentVariables: !Sub |
+                  [{"name":"DEPLOY_SHA","value":"#{SourceVariables.CommitId}","type":"PLAINTEXT"}]
+              InputArtifacts:
+                - Name: SourceOutput
+
+  PipelineTriggerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-eventbridge-pipeline"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: events.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: start-pipeline
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: codepipeline:StartPipelineExecution
+                Resource: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}"
+
+  PipelineTrigger:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: !Sub "Start ${AppName}-deploy on a push to ${BranchName}"
+      EventPattern:
+        source: [aws.codecommit]
+        detail-type: ["CodeCommit Repository State Change"]
+        resources:
+          - !Sub "arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${RepositoryName}"
+        detail:
+          event: [referenceCreated, referenceUpdated]
+          referenceType: [branch]
+          referenceName: [!Ref BranchName]
+      Targets:
+        - Id: pipeline
+          Arn: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}"
+          RoleArn: !GetAtt PipelineTriggerRole.Arn
+
+Outputs:
+  PipelineName:
+    Value: !Ref Pipeline
+  ArtifactBucketName:
+    Value: !Ref ArtifactBucket
+  CodeCommitCloneUrl:
+    Value: !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${RepositoryName}"
+  PublicUrl:
+    Value: !Sub "https://${Domain}"

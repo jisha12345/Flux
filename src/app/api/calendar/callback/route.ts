@@ -5,7 +5,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const userId = searchParams.get("state");
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://flux-swart-five.vercel.app";
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
   if (!code || !userId) return NextResponse.redirect(`${siteUrl}/employer/dashboard?error=calendar_auth_failed`);
 

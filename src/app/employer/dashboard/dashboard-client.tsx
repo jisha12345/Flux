@@ -8,6 +8,7 @@ import CVScreener from "./cv-screener";
 import ProfileSourcer from "./profile-sourcer";
 import CandidateModal from "./candidate-modal";
 import TestsTab from "./tests-tab";
+import AiInterviewsTab from "./ai-interviews-tab";
 import InterviewScheduler from "./interview-scheduler";
 import TranscriptAnalyzer from "./transcript-analyzer";
 import { createClient } from "@/lib/supabase";
@@ -75,14 +76,14 @@ interface Props {
   userEmail: string;
 }
 
-type Tab = "candidates" | "screen" | "source" | "interviews";
+type Tab = "candidates" | "screen" | "source" | "interviews" | "ai";
 type SortKey = "name" | "score" | "status" | "role";
 
 export default function DashboardClient({ candidates: initialCandidates, jobs, userEmail }: Props) {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get("tab");
-    return (["candidates", "screen", "source", "interviews"] as Tab[]).includes(t as Tab) ? (t as Tab) : "candidates";
+    return (["candidates", "screen", "source", "interviews", "ai"] as Tab[]).includes(t as Tab) ? (t as Tab) : "candidates";
 
   });
   const [calendarBanner, setCalendarBanner] = useState<"connected" | "error" | null>(() => {
@@ -142,7 +143,7 @@ export default function DashboardClient({ candidates: initialCandidates, jobs, u
             <span className="text-orange-400 text-xs">by Shiprocket</span>
           </Link>
           <div className="flex gap-1">
-            {(["candidates", "screen", "source", "interviews"] as Tab[]).map((t) => (
+            {(["candidates", "screen", "source", "interviews", "ai"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -153,7 +154,8 @@ export default function DashboardClient({ candidates: initialCandidates, jobs, u
                 {t === "candidates" ? "Candidates"
                   : t === "screen" ? "Screen CVs"
                   : t === "source" ? "Source Profiles"
-                  : "Interviews"}
+                  : t === "interviews" ? "Interviews"
+                  : "AI Interviews"}
               </button>
             ))}
           </div>
@@ -329,6 +331,7 @@ export default function DashboardClient({ candidates: initialCandidates, jobs, u
         )}
         {tab === "source" && <ProfileSourcer jobs={jobs} />}
         {tab === "interviews" && <InterviewsTab candidates={candidates} onViewProfile={setSelectedCandidate} />}
+        {tab === "ai" && <AiInterviewsTab candidates={candidates} jobs={jobs} />}
       </div>
 
       {/* Candidate modal */}

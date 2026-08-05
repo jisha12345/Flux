@@ -1,0 +1,18 @@
+[Unit]
+Description=Flux voice gateway (STT/LLM/TTS WebSocket bridge)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/apps/flux/gateway
+Environment=NODE_ENV=production
+EnvironmentFile=/home/ubuntu/apps/flux/gateway/.env
+ExecStart=/home/ubuntu/apps/flux/gateway/node_modules/.bin/tsx src/server.ts
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

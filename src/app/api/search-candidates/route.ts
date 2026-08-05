@@ -14,10 +14,12 @@ export async function GET(request: NextRequest) {
     .order("ai_score", { ascending: false });
 
   if (q) {
-    query = query.or(`name.ilike.%${q}%,email.ilike.%${q}%,current_role.ilike.%${q}%`);
+    query = query.or(`full_name.ilike.%${q}%,email.ilike.%${q}%,current_role.ilike.%${q}%`);
   }
   if (skill) {
-    query = query.contains("skills", [skill]);
+    // Older rows carry a comma-separated key_skills string; newer ones a
+    // skills array — match either so search covers the whole table.
+    query = query.or(`skills.cs.{"${skill}"},key_skills.ilike.%${skill}%`);
   }
   if (minScore) {
     query = query.gte("ai_score", parseInt(minScore));

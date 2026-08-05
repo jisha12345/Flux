@@ -1,0 +1,774 @@
+/*
+ * Hyr Interview Results — assessment report document (screen + print).
+ *
+ * The palette comes from the HYR constants in src/lib/interview-types.ts,
+ * injected as --hyr-* custom properties on .hyr-root by page.tsx — no hex
+ * values are duplicated here beyond plain white.
+ *
+ * pt units are used inside the document so the printed PDF (US Letter)
+ * matches the Hyr template's point sizes exactly; on screen 1pt = 1.333px.
+ * The template uses sharp rectangles throughout — no border radius.
+ */
+
+@page {
+  size: letter;
+  margin: 0.5in 0.7in;
+}
+
+.hyr-root {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* ── Document ──────────────────────────────────────────────────────────── */
+
+.hyr-doc {
+  font-family: var(--font-noto-serif), "Noto Serif", Georgia, "Times New Roman", serif;
+  font-size: 10pt;
+  line-height: 1.6;
+  color: var(--hyr-body);
+}
+
+.report-page {
+  display: flow-root;
+  background: #fff;
+}
+
+@media screen {
+  .report-page {
+    padding: 0.7in 0.8in;
+    margin-bottom: 28px;
+    box-shadow: 0 1px 2px rgb(24 38 31 / 0.09), 0 12px 32px rgb(24 38 31 / 0.07);
+  }
+}
+
+/* ── Running header & per-page footer ─────────────────────────────────── */
+
+.hyr-run-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12pt;
+  font-size: 8.5pt;
+  padding-bottom: 5pt;
+  border-bottom: 1pt solid var(--hyr-hairline);
+  margin-bottom: 16pt;
+}
+
+.hyr-run-brand {
+  font-weight: 700;
+  color: var(--hyr-primary);
+}
+
+.hyr-run-type {
+  color: var(--hyr-muted);
+}
+
+.hyr-page-footer {
+  margin-top: 22pt;
+  padding-top: 6pt;
+  border-top: 1pt solid var(--hyr-hairline);
+  font-size: 8pt;
+  color: var(--hyr-footer);
+  text-align: center;
+}
+
+/* ── Hero banner (cover + final recommendation) ───────────────────────── */
+
+.hyr-hero {
+  background: var(--hyr-banner);
+  color: #fff;
+  padding: 22pt 24pt;
+}
+
+.hyr-hero h1 {
+  font-size: 25pt;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.hyr-hero p {
+  font-size: 11pt;
+  margin-top: 5pt;
+}
+
+/* ── Type helpers ─────────────────────────────────────────────────────── */
+
+.hyr-label {
+  font-size: 7.5pt;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--hyr-muted);
+}
+
+.hyr-label-primary {
+  color: var(--hyr-primary);
+}
+
+.hyr-h2 {
+  background: var(--hyr-mint);
+  color: var(--hyr-primary);
+  font-size: 13pt;
+  font-weight: 700;
+  line-height: 1.3;
+  padding: 6pt 12pt;
+  margin: 18pt 0 10pt;
+}
+
+.hyr-run-head + .hyr-h2 {
+  margin-top: 0;
+}
+
+.hyr-para {
+  margin-bottom: 8pt;
+}
+
+.hyr-note {
+  margin-top: 12pt;
+  font-style: italic;
+  font-size: 9.5pt;
+  color: var(--hyr-muted);
+}
+
+.hyr-note strong {
+  color: var(--hyr-body);
+}
+
+.hyr-ul {
+  list-style: disc outside;
+  padding-left: 14pt;
+  margin-top: 2pt;
+}
+
+.hyr-ul li {
+  margin-bottom: 4pt;
+  padding-left: 2pt;
+}
+
+.hyr-ul li::marker {
+  color: var(--hyr-primary);
+}
+
+/* ── Two-panel card (cover candidate card + final recommendation card) ── */
+
+.hyr-panel-card {
+  display: flex;
+  align-items: stretch;
+  background: var(--hyr-mint-faint);
+  border: 1pt solid var(--hyr-hairline);
+  margin-top: 14pt;
+}
+
+.hyr-panel {
+  padding: 16pt 18pt;
+}
+
+.hyr-panel-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hyr-panel-divider {
+  flex: none;
+  width: 1pt;
+  background: var(--hyr-hairline);
+}
+
+.hyr-panel-score {
+  flex: 0 0 34%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 2pt;
+}
+
+.hyr-candidate-name {
+  font-size: 20pt;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--hyr-primary);
+  margin: 4pt 0 10pt;
+}
+
+.hyr-meta-line {
+  font-size: 10pt;
+  margin-bottom: 3pt;
+}
+
+.hyr-panel-verdict {
+  font-size: 11pt;
+  font-weight: 700;
+  color: var(--hyr-primary);
+  margin-top: 2pt;
+}
+
+.hyr-donut-caption {
+  margin-top: 8pt;
+}
+
+/* Final recommendation card */
+
+.hyr-verdict {
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--hyr-primary);
+  margin: 4pt 0 8pt;
+}
+
+.hyr-verdict-lg {
+  font-size: 20pt;
+}
+
+.hyr-verdict-sm {
+  font-size: 15pt;
+}
+
+.hyr-final-percent {
+  font-size: 28pt;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--hyr-primary);
+}
+
+/* ── Cover: 3-column summary stat strip ───────────────────────────────── */
+
+.hyr-stat-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  background: var(--hyr-mint-faint);
+  border: 1pt solid var(--hyr-hairline);
+  margin: 12pt 0;
+}
+
+.hyr-stat-strip > div {
+  padding: 10pt 12pt;
+}
+
+.hyr-stat-strip > div + div {
+  border-left: 1pt solid var(--hyr-hairline);
+}
+
+.hyr-stat-score {
+  font-size: 15pt;
+  font-weight: 700;
+  color: var(--hyr-primary);
+  margin: 3pt 0 2pt;
+}
+
+.hyr-stat-caption {
+  font-size: 8.5pt;
+  line-height: 1.45;
+  color: var(--hyr-muted);
+}
+
+/* ── Cover: hiring conclusion bar ─────────────────────────────────────── */
+
+.hyr-conclusion {
+  background: var(--hyr-banner);
+  color: #fff;
+  padding: 12pt 14pt;
+}
+
+.hyr-conclusion .hyr-label {
+  color: #fff;
+  margin-bottom: 4pt;
+}
+
+/* ── Scorecard table ──────────────────────────────────────────────────── */
+
+.hyr-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.hyr-table thead th {
+  background: var(--hyr-banner);
+  color: #fff;
+  font-size: 9.5pt;
+  font-weight: 700;
+  text-align: left;
+  padding: 6pt 10pt;
+}
+
+.hyr-table tbody td {
+  font-size: 10pt;
+  padding: 6pt 10pt;
+  border-bottom: 1pt solid var(--hyr-hairline);
+  vertical-align: top;
+}
+
+.hyr-table tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.hyr-table .col-score {
+  width: 16%;
+}
+
+.hyr-table .col-tier {
+  width: 24%;
+}
+
+.hyr-score-cell {
+  font-weight: 700;
+  color: var(--hyr-primary);
+  white-space: nowrap;
+}
+
+.hyr-tier-cell {
+  font-weight: 700;
+  color: var(--hyr-primary);
+}
+
+.hyr-tier-cell.is-warn {
+  color: var(--hyr-amber);
+  background: var(--hyr-cream);
+}
+
+/* ── Business impact grid ─────────────────────────────────────────────── */
+
+.hyr-impact-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8pt;
+}
+
+.hyr-impact-card {
+  background: var(--hyr-mint-faint);
+  border: 1pt solid var(--hyr-hairline);
+  padding: 10pt 12pt;
+}
+
+.hyr-impact-value {
+  font-size: 15pt;
+  font-weight: 700;
+  color: var(--hyr-primary);
+  margin: 3pt 0 2pt;
+}
+
+/* ── Hiring committee snapshot ────────────────────────────────────────── */
+
+.hyr-snapshot {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10pt;
+  align-items: stretch;
+}
+
+.hyr-snap-box {
+  padding: 12pt 14pt;
+}
+
+.hyr-snap-box .hyr-ul {
+  font-size: 9.5pt;
+  margin-top: 7pt;
+}
+
+.hyr-snap-strengths {
+  background: var(--hyr-mint);
+}
+
+.hyr-snap-strengths .hyr-label {
+  color: var(--hyr-primary);
+}
+
+.hyr-snap-watch {
+  background: var(--hyr-cream);
+}
+
+.hyr-snap-watch .hyr-label {
+  color: var(--hyr-amber);
+}
+
+.hyr-snap-watch .hyr-ul li::marker {
+  color: var(--hyr-amber);
+}
+
+/* ── Competency deep-dive cards ───────────────────────────────────────── */
+
+.hyr-comp {
+  margin-bottom: 14pt;
+}
+
+.hyr-comp-head {
+  display: flex;
+  align-items: center;
+  gap: 8pt;
+  background: var(--hyr-mint);
+  padding: 5pt 10pt;
+}
+
+.hyr-comp-num {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17pt;
+  height: 17pt;
+  background: var(--hyr-banner);
+  color: #fff;
+  font-size: 10pt;
+  font-weight: 700;
+}
+
+.hyr-comp-name {
+  font-size: 11.5pt;
+  font-weight: 700;
+  color: var(--hyr-primary);
+}
+
+.hyr-comp-body {
+  display: flex;
+  align-items: stretch;
+  background: var(--hyr-mint-faint);
+  border: 1pt solid var(--hyr-hairline);
+  border-top: 0;
+}
+
+.hyr-comp-main {
+  flex: 1 1 70%;
+  min-width: 0;
+  padding: 12pt 14pt;
+}
+
+.hyr-comp-main .hyr-ul {
+  font-size: 9.5pt;
+  margin-top: 6pt;
+}
+
+.hyr-comp-side {
+  flex: 0 0 30%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 2pt;
+  padding: 12pt;
+  background: var(--hyr-mint);
+  border-left: 1pt solid var(--hyr-hairline);
+}
+
+.hyr-comp-score {
+  font-size: 17pt;
+  font-weight: 700;
+  color: var(--hyr-primary);
+}
+
+.hyr-comp-tier {
+  font-size: 9.5pt;
+  font-weight: 700;
+  color: var(--hyr-primary);
+}
+
+.hyr-comp-tier.is-warn {
+  color: var(--hyr-amber);
+}
+
+.hyr-observation {
+  margin-top: 8pt;
+  font-size: 9.5pt;
+}
+
+.hyr-observation em {
+  font-style: italic;
+}
+
+/* ── Role fit / final-round focus grids ───────────────────────────────── */
+
+.hyr-fit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8pt;
+}
+
+.hyr-fit-cell {
+  background: var(--hyr-mint-faint);
+  border: 1pt solid var(--hyr-hairline);
+  padding: 10pt 12pt;
+}
+
+.hyr-fit-text {
+  font-size: 9.5pt;
+  line-height: 1.5;
+  margin-top: 4pt;
+}
+
+.hyr-focus-label {
+  font-size: 10pt;
+  font-weight: 700;
+  color: var(--hyr-primary);
+}
+
+/* ── Risk calibration row ─────────────────────────────────────────────── */
+
+.hyr-risk-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  background: var(--hyr-mint-faint);
+  border: 1pt solid var(--hyr-hairline);
+  text-align: center;
+}
+
+.hyr-risk-row > div {
+  padding: 10pt 12pt;
+}
+
+.hyr-risk-row > div + div {
+  border-left: 1pt solid var(--hyr-hairline);
+}
+
+.hyr-risk-level {
+  font-size: 12pt;
+  font-weight: 700;
+  color: var(--hyr-primary);
+  margin-top: 3pt;
+}
+
+.hyr-risk-level.is-warn {
+  color: var(--hyr-amber);
+}
+
+/* ── Screen-only chrome ───────────────────────────────────────────────── */
+
+.hyr-print-btn {
+  background: var(--hyr-primary);
+  transition: background-color 150ms ease-out;
+}
+
+.hyr-print-btn:hover {
+  background: var(--hyr-banner);
+}
+
+.hyr-print-btn:focus-visible {
+  outline: 2px solid var(--hyr-primary);
+  outline-offset: 2px;
+}
+
+.hyr-pulse {
+  animation: hyr-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes hyr-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hyr-pulse {
+    animation: none;
+  }
+}
+
+/* ── Narrow screens (never affects print) ─────────────────────────────── */
+
+@media screen and (max-width: 640px) {
+  .report-page {
+    padding: 24px 20px;
+  }
+
+  .hyr-panel-card,
+  .hyr-comp-body {
+    flex-direction: column;
+  }
+
+  .hyr-panel-divider {
+    width: auto;
+    height: 1pt;
+  }
+
+  .hyr-panel-score,
+  .hyr-comp-side {
+    flex-basis: auto;
+  }
+
+  .hyr-comp-side {
+    border-left: 0;
+    border-top: 1pt solid var(--hyr-hairline);
+  }
+
+  .hyr-stat-strip,
+  .hyr-impact-grid,
+  .hyr-risk-row,
+  .hyr-snapshot,
+  .hyr-fit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hyr-stat-strip > div + div,
+  .hyr-risk-row > div + div {
+    border-left: 0;
+    border-top: 1pt solid var(--hyr-hairline);
+  }
+}
+
+/* ── Print ────────────────────────────────────────────────────────────── */
+
+@media print {
+  .screen-only {
+    display: none !important;
+  }
+
+  .hyr-root {
+    background: #fff !important;
+    min-height: 0 !important;
+  }
+
+  .hyr-doc {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .report-page {
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .report-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .hyr-doc a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  /* Compaction so each section fits one letter page with typical content.
+     Screen keeps the roomier template spacing; print tightens leading and
+     padding only — font sizes and palette are untouched. */
+  .hyr-doc {
+    line-height: 1.5;
+  }
+
+  .hyr-run-head {
+    margin-bottom: 8pt;
+  }
+
+  .hyr-hero {
+    padding: 12pt 20pt;
+  }
+
+  .hyr-para {
+    margin-bottom: 6pt;
+  }
+
+  .hyr-fit-grid {
+    gap: 6pt;
+  }
+
+  .hyr-fit-cell {
+    padding: 8pt 10pt;
+  }
+
+  .hyr-fit-text {
+    margin-top: 3pt;
+  }
+
+  .hyr-risk-row > div {
+    padding: 8pt 10pt;
+  }
+
+  .hyr-verdict {
+    margin: 3pt 0 6pt;
+  }
+
+  .hyr-h2 {
+    margin: 8pt 0 6pt;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .hyr-panel {
+    padding: 10pt 12pt;
+  }
+
+  .hyr-panel-card {
+    margin-top: 10pt;
+  }
+
+  .hyr-table thead th,
+  .hyr-table tbody td {
+    padding: 4pt 10pt;
+  }
+
+  .hyr-impact-card {
+    padding: 7pt 10pt;
+  }
+
+  .hyr-snap-box {
+    padding: 9pt 12pt;
+  }
+
+  .hyr-ul li {
+    margin-bottom: 2pt;
+  }
+
+  .hyr-stat-strip {
+    margin: 10pt 0;
+  }
+
+  .hyr-stat-strip > div {
+    padding: 8pt 10pt;
+  }
+
+  .hyr-conclusion {
+    padding: 10pt 12pt;
+  }
+
+  .hyr-comp {
+    margin-bottom: 8pt;
+  }
+
+  .hyr-comp-head {
+    padding: 4pt 9pt;
+  }
+
+  .hyr-comp-main {
+    padding: 9pt 12pt;
+    font-size: 9.5pt;
+    line-height: 1.45;
+  }
+
+  .hyr-comp-main .hyr-ul {
+    font-size: 9pt;
+    margin-top: 4pt;
+  }
+
+  .hyr-comp-main .hyr-ul li {
+    margin-bottom: 2pt;
+  }
+
+  .hyr-observation {
+    margin-top: 6pt;
+    font-size: 9pt;
+  }
+
+  .hyr-note {
+    margin-top: 6pt;
+  }
+
+  .hyr-page-footer {
+    margin-top: 8pt;
+    break-before: avoid;
+    page-break-before: avoid;
+  }
+}
