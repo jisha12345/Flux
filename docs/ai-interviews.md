@@ -10,8 +10,8 @@ Live at **https://jisha.ai-rocket-experiments.com** (see `deployment.md`).
 
 ```
 browser  ── AudioWorklet, 16 kHz PCM16 ──►  voice gateway (Node, :8787)
-   ▲                                              │
-   │                                    server-side energy VAD
+   ▲          (only while the mic is open —            │
+   │           the candidate taps to talk)             │
    │                                              ▼
    │                                   Sarvam streaming STT (saarika:v2.5)
    │                                              ▼
@@ -29,17 +29,38 @@ The gateway is a **separate Node process**, not a Next.js route, because
 Vercel cannot hold a WebSocket open. It runs beside `next dev` locally and as
 its own systemd unit in production.
 
+### The mic is push-to-talk, and that is load-bearing
+
+The candidate taps **Tap to speak** to take the floor and taps again to send.
+Between taps the browser sends no audio at all and the gateway listens to
+nothing. There is **no voice-activity detection anywhere in the pipeline.**
+
+This replaced an open-mic build with a server-side energy VAD, which failed in
+a way worth remembering: room noise — and the interviewer's own TTS leaking
+back through the candidate's speakers — tripped `speech_start`, which cancelled
+the question that was still being generated. The interviewer would appear to
+skip questions, answer itself, or transcribe coughs as answers. Any future
+"just add automatic turn detection" idea has to solve that first.
+
+Consequences that hold today:
+
+- `mic_open` / `mic_close` frames bracket every candidate turn; STT flushes on
+  `mic_close`, never on silence.
+- Tapping while the interviewer is speaking is a deliberate barge-in — the only
+  way a turn gets interrupted.
+- The client withholds the "your turn" state until scheduled TTS playback has
+  actually drained, so the button never goes live over the tail of a question.
+- A tap that captured no voiced audio returns `no_speech` instead of sending an
+  empty turn to the model.
+
 ### Why it feels fast
 
-First audio lands ~1.5–2 s after the candidate stops talking, because the
+First audio lands ~1.5–2 s after the candidate sends their answer, because the
 pipeline never waits for a whole turn to finish:
 
 - `SentenceChunker` (`gateway/src/voice-chunker.ts`) emits the first fragment
   after ~18 characters, so TTS starts while Claude is still generating.
 - STT and TTS sockets are prewarmed.
-- Barge-in is echo-rejecting: the client only interrupts when mic RMS ≥ 0.09
-  for 4 consecutive frames while the assistant is speaking, and replays a
-  6-frame onset buffer so the first syllable is not lost.
 
 Sarvam quirk worth knowing: **a flushed TTS socket cannot be reused.** Drop it
 and open a new one.
@@ -49,7 +70,7 @@ and open a new one.
 1. Dashboard → **AI Interviews** → New interview → candidate + JD, language
    (`en-IN` / `hi-IN`), duration → creates a row and a shareable token link.
 2. Candidate opens `/interview/<token>`: consent → camera/mic/speaker check →
-   identity snapshot → hands-free interview → done screen.
+   identity snapshot → push-to-talk interview → done screen.
 3. On first connect the gateway generates a **blueprint** from the JD + CV
    (sections with minutes and probes, 8 competencies, role level), then
    conducts the interview against it, persisting every turn.

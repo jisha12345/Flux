@@ -42,3 +42,4 @@ gateway/node_modules/
 gateway/tmp-recordings/
 gateway/.env
 build-now/
+.env.poc

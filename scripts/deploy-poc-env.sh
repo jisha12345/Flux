@@ -26,10 +26,34 @@ APP_DIR="/home/ubuntu/apps/flux"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
-[ -f .env.local ] || { echo "no .env.local to read secrets from" >&2; exit 1; }
+
+# Prefer .env.poc (production values, gitignored) and fall back to .env.local.
+# .env.local routinely points at a local Supabase stack during development, and
+# shipping those values would take the live site down — hence the guard below.
+SRC="${ENV_SOURCE:-}"
+if [ -z "$SRC" ]; then
+  if [ -f .env.poc ]; then SRC=.env.poc; else SRC=.env.local; fi
+fi
+[ -f "$SRC" ] || { echo "no $SRC to read secrets from" >&2; exit 1; }
 
 say() { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }
-val() { grep "^$1=" .env.local | cut -d= -f2- | head -1; }
+val() { grep "^$1=" "$SRC" | cut -d= -f2- | head -1; }
+
+SUPA_URL="$(val NEXT_PUBLIC_SUPABASE_URL)"
+case "$SUPA_URL" in
+  *localhost*|*127.0.0.1*|"")
+    cat >&2 <<EOF
+REFUSING to deploy env from $SRC — NEXT_PUBLIC_SUPABASE_URL is "${SUPA_URL:-unset}".
+
+That is a local Supabase stack (or missing). Pushing it would point production
+at a database that does not exist from the server's perspective.
+
+Put the production values in .env.poc (gitignored), or run with
+  ENV_SOURCE=/path/to/prod.env $0
+EOF
+    exit 1 ;;
+esac
+say "Reading production values from $SRC"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
