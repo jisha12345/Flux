@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { Check, Mic } from "lucide-react";
 
 const SHIPROCKET_ORANGE = "#F26522";
 
@@ -49,27 +50,45 @@ const DURATIONS = [15, 30, 45];
 const inputCls =
   "w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/20";
 
+const chipBase = "inline-block whitespace-nowrap text-xs font-medium px-2 py-0.5 rounded-full border";
+
+/** The evaluated chip is coloured by the verdict, not merely by "it finished".
+ *  A 14% NOT RECOMMENDED result must not read as a green pass at a glance. */
+function verdictTone(verdict: string | null): string {
+  const v = (verdict ?? "").toUpperCase();
+  if (v.includes("STRONG") || v.includes("RECOMMENDED TO PROGRESS")) {
+    return "bg-green-50 text-green-700 border-green-200";
+  }
+  if (v.includes("CAUTION")) return "bg-amber-50 text-amber-700 border-amber-200";
+  if (v.includes("NOT RECOMMENDED")) return "bg-red-50 text-red-600 border-red-200";
+  return "bg-gray-50 text-gray-600 border-gray-200";
+}
+
 function StatusChip({ iv }: { iv: AiInterview }) {
   switch (iv.status) {
     case "pending":
-      return <span className="text-xs font-medium px-2 py-0.5 rounded-full border bg-blue-50 text-blue-700 border-blue-200">Pending</span>;
+      return <span className={`${chipBase} bg-blue-50 text-blue-700 border-blue-200`}>Pending</span>;
     case "in_progress":
-      return <span className="text-xs font-medium px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200 animate-pulse">In progress</span>;
+      return <span className={`${chipBase} bg-amber-50 text-amber-700 border-amber-200`}>In progress</span>;
     case "completed":
-      return <span className="text-xs font-medium px-2 py-0.5 rounded-full border bg-violet-50 text-violet-700 border-violet-200">Evaluating…</span>;
+      return <span className={`${chipBase} bg-violet-50 text-violet-700 border-violet-200`}>Evaluating…</span>;
     case "evaluated":
       return (
-        <span className="text-xs font-medium px-2 py-0.5 rounded-full border bg-green-50 text-green-700 border-green-200">
-          {iv.overall_percent != null ? `${iv.overall_percent}%` : "Evaluated"}
-          {iv.verdict ? ` · ${iv.verdict}` : ""}
+        <span className="flex flex-col items-start gap-1">
+          <span className={`${chipBase} ${verdictTone(iv.verdict)}`}>
+            {iv.overall_percent != null ? `${iv.overall_percent}%` : "Evaluated"}
+          </span>
+          {iv.verdict && (
+            <span className="text-[11px] leading-tight text-gray-500">{iv.verdict}</span>
+          )}
         </span>
       );
     case "expired":
-      return <span className="text-xs font-medium px-2 py-0.5 rounded-full border bg-red-50 text-red-600 border-red-200">Expired</span>;
+      return <span className={`${chipBase} bg-gray-100 text-gray-600 border-gray-300`}>Expired</span>;
     case "error":
-      return <span className="text-xs font-medium px-2 py-0.5 rounded-full border bg-red-50 text-red-600 border-red-200">Error</span>;
+      return <span className={`${chipBase} bg-red-50 text-red-600 border-red-200`}>Error</span>;
     default:
-      return <span className="text-xs font-medium px-2 py-0.5 rounded-full border bg-gray-50 text-gray-600 border-gray-200">{iv.status}</span>;
+      return <span className={`${chipBase} bg-gray-50 text-gray-600 border-gray-200`}>{iv.status}</span>;
   }
 }
 
@@ -111,7 +130,7 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
       const data = await res.json();
       if (Array.isArray(data.interviews)) setInterviews(data.interviews);
     } catch {
-      // network hiccup — keep the current list
+      // network hiccup, keep the current list
     } finally {
       setLoaded(true);
     }
@@ -223,7 +242,7 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
       setCreated({ url: data.interview_url, name: iv.candidate_name, emailSent: !!data.email_sent });
       try {
         await navigator.clipboard.writeText(data.interview_url);
-        showToast("Interview created — link copied to clipboard");
+        showToast("Interview created. Link copied to clipboard.");
       } catch {
         showToast("Interview created");
       }
@@ -241,7 +260,7 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
         setCopiedId(iv.id);
         setTimeout(() => setCopiedId((prev) => (prev === iv.id ? null : prev)), 2000);
       },
-      () => showToast("Couldn't copy — please copy manually")
+      () => showToast("Couldn't copy. Please copy the link manually.")
     );
   }
 
@@ -257,7 +276,7 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
       {/* Header */}
       <div className="bg-white rounded-xl border shadow-sm p-5 flex items-start justify-between gap-4">
         <div>
-          <h3 className="font-semibold text-gray-900 mb-1">AI Interviews</h3>
+          <h3 className="font-semibold text-gray-900 mb-1">AI interviews</h3>
           <p className="text-sm text-gray-400">
             Send candidates a link to a live, voice-based AI interview. A full assessment report lands here when they finish.
           </p>
@@ -280,11 +299,13 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
           {created ? (
             <div className="space-y-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0" style={{ background: "rgba(242,101,34,0.1)" }}>✓</div>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(242,101,34,0.1)" }}>
+                  <Check className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+                </div>
                 <div>
                   <p className="font-semibold text-gray-900 text-sm">Interview created for {created.name}</p>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    Share this link with the candidate — it opens their AI interview room.
+                    Share this link with the candidate. It opens their interview room.
                     {created.emailSent && " Invite email sent."}
                   </p>
                 </div>
@@ -355,7 +376,7 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
                       <option value="">Select a candidate ({filteredCandidates.length})</option>
                       {filteredCandidates.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {(c.full_name ?? c.name ?? c.email) + (c.current_role ? ` — ${c.current_role}` : "")}
+                          {(c.full_name ?? c.name ?? c.email) + (c.current_role ? `, ${c.current_role}` : "")}
                         </option>
                       ))}
                     </select>
@@ -488,11 +509,13 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
         </div>
       ) : interviews.length === 0 ? (
         <div className="bg-white rounded-xl border shadow-sm p-10 text-center space-y-3">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto text-2xl" style={{ background: "rgba(242,101,34,0.1)" }}>🎙️</div>
+          <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto" style={{ background: "rgba(242,101,34,0.1)" }}>
+            <Mic className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+          </div>
           <p className="text-sm font-medium text-gray-900">No AI interviews yet</p>
           <p className="text-sm text-gray-400 max-w-md mx-auto">
             Create an interview link, send it to a candidate, and they&rsquo;ll be interviewed live by an AI interviewer.
-            The full assessment report — scores, verdict, and evidence — lands right here when they finish.
+            The assessment report, with scores, verdict, and evidence, appears here when they finish.
           </p>
         </div>
       ) : (
@@ -536,7 +559,7 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
                       onClick={() => copyLink(iv)}
                       className="px-3 py-1.5 border border-gray-200 text-gray-600 text-xs font-medium rounded-lg hover:border-gray-300 transition-colors whitespace-nowrap"
                     >
-                      {copiedId === iv.id ? "Copied ✓" : "Copy link"}
+                      {copiedId === iv.id ? "Copied" : "Copy link"}
                     </button>
                   )}
                   {iv.status === "evaluated" && (
@@ -545,7 +568,7 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
                       className="px-3 py-1.5 text-white text-xs font-semibold rounded-lg hover:opacity-90 transition-all whitespace-nowrap"
                       style={{ background: SHIPROCKET_ORANGE }}
                     >
-                      View report →
+                      View report
                     </Link>
                   )}
                   {iv.status === "completed" && (

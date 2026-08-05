@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Check, ChevronDown, ChevronUp, ChevronsUpDown, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import CVScreener from "./cv-screener";
 import ProfileSourcer from "./profile-sourcer";
@@ -124,11 +125,10 @@ export default function DashboardClient({ candidates: initialCandidates, jobs, u
     return 0;
   });
 
-  const SortIndicator = ({ k }: { k: SortKey }) => (
-    <span className="ml-1 text-xs opacity-50">
-      {sortKey === k ? (sortAsc ? "↑" : "↓") : "↕"}
-    </span>
-  );
+  const SortIndicator = ({ k }: { k: SortKey }) => {
+    const Icon = sortKey === k ? (sortAsc ? ChevronUp : ChevronDown) : ChevronsUpDown;
+    return <Icon className="ml-1 inline-block h-3.5 w-3.5 align-middle opacity-50" strokeWidth={1.75} aria-hidden="true" />;
+  };
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -153,9 +153,9 @@ export default function DashboardClient({ candidates: initialCandidates, jobs, u
               >
                 {t === "candidates" ? "Candidates"
                   : t === "screen" ? "Screen CVs"
-                  : t === "source" ? "Source Profiles"
+                  : t === "source" ? "Source profiles"
                   : t === "interviews" ? "Interviews"
-                  : "AI Interviews"}
+                  : "AI interviews"}
               </button>
             ))}
           </div>
@@ -175,14 +175,21 @@ export default function DashboardClient({ candidates: initialCandidates, jobs, u
 
       {calendarBanner === "connected" && (
         <div className="bg-green-600 text-white text-sm px-6 py-2.5 flex items-center justify-between">
-          <span>✓ Google Calendar connected — Meet links will now be auto-generated when you schedule interviews.</span>
-          <button onClick={() => setCalendarBanner(null)} className="text-white/70 hover:text-white ml-4">×</button>
+          <span className="flex items-center gap-2">
+            <Check className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+            Google Calendar is connected. Meet links are generated automatically when you schedule an interview.
+          </span>
+          <button onClick={() => setCalendarBanner(null)} aria-label="Dismiss" className="text-white/70 hover:text-white ml-4">
+            <X className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+          </button>
         </div>
       )}
       {calendarBanner === "error" && (
         <div className="bg-red-600 text-white text-sm px-6 py-2.5 flex items-center justify-between">
           <span>Google Calendar connection failed ({searchParams.get("reason") ?? "unknown error"}). Check your Google Cloud credentials and try again.</span>
-          <button onClick={() => setCalendarBanner(null)} className="text-white/70 hover:text-white ml-4">×</button>
+          <button onClick={() => setCalendarBanner(null)} aria-label="Dismiss" className="text-white/70 hover:text-white ml-4">
+            <X className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+          </button>
         </div>
       )}
 
@@ -207,7 +214,7 @@ export default function DashboardClient({ candidates: initialCandidates, jobs, u
             {/* Candidates table */}
             <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b flex items-center justify-between">
-                <h2 className="font-semibold text-gray-900">All Candidates <span className="text-sm text-gray-400 font-normal ml-1">({candidates.length})</span></h2>
+                <h2 className="font-semibold text-gray-900">All candidates <span className="text-sm text-gray-400 font-normal ml-1">({candidates.length})</span></h2>
                 <span className="text-xs text-muted-foreground">Click a row to view full profile</span>
               </div>
               {/* Sortable header */}
@@ -254,7 +261,7 @@ export default function DashboardClient({ candidates: initialCandidates, jobs, u
                             <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: SHIPROCKET_ORANGE }}>
                               {scoreVal}
                             </div>
-                          ) : <span className="text-gray-300 text-xs">—</span>}
+                          ) : null}
                         </div>
                         <div className="col-span-2">
                           <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${STATUS_BADGE[c.status] ?? "bg-gray-50 text-gray-600 border-gray-200"}`}>
@@ -264,14 +271,20 @@ export default function DashboardClient({ candidates: initialCandidates, jobs, u
                         <div className="col-span-1 flex justify-center gap-1" onClick={e => e.stopPropagation()}>
                           <button
                             title="Shortlist"
+                            aria-label="Shortlist"
                             onClick={() => handleStatusChange(c.id, "shortlisted")}
                             className="w-6 h-6 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-xs hover:bg-orange-200 transition-colors"
-                          >✓</button>
+                          >
+                            <Check className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                          </button>
                           <button
                             title="Reject"
+                            aria-label="Reject"
                             onClick={() => handleStatusChange(c.id, "rejected")}
                             className="w-6 h-6 rounded-full bg-red-50 text-red-500 flex items-center justify-center text-xs hover:bg-red-100 transition-colors"
-                          >✗</button>
+                          >
+                            <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                          </button>
                         </div>
                       </div>
                     );
@@ -284,7 +297,7 @@ export default function DashboardClient({ candidates: initialCandidates, jobs, u
             {jobs.length > 0 && (
               <div className="mt-6 bg-white rounded-xl border shadow-sm overflow-hidden">
                 <div className="px-5 py-4 border-b flex items-center justify-between">
-                  <h2 className="font-semibold text-gray-900">Active Job Descriptions</h2>
+                  <h2 className="font-semibold text-gray-900">Active job descriptions</h2>
                   <Link href="/employer/jd-builder">
                     <Button size="sm" className="text-white text-xs" style={{ background: SHIPROCKET_ORANGE }}>+ New JD</Button>
                   </Link>
@@ -320,7 +333,7 @@ export default function DashboardClient({ candidates: initialCandidates, jobs, u
             onClick={() => setTab("candidates")}
             className="mb-4 text-sm text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors"
           >
-            ← Back to Candidates
+            Back to candidates
           </button>
         )}
         {tab === "screen" && (
@@ -379,7 +392,7 @@ function InterviewsTab({ candidates, onViewProfile }: { candidates: Candidate[];
       { id: Date.now().toString(), candidate_id: candidateId, meet_link: meetLink, status: "scheduled" },
       ...prev,
     ]);
-    // Do NOT close here — let the scheduler show the result screen with the Meet link
+    // Do NOT close here. The scheduler needs to show the result screen with the Meet link.
     // The user closes it explicitly via the Close button
   }
 
@@ -389,11 +402,11 @@ function InterviewsTab({ candidates, onViewProfile }: { candidates: Candidate[];
     <div className="space-y-4">
       <div className="bg-white rounded-xl border shadow-sm p-5 flex items-start justify-between gap-4">
         <div>
-          <h3 className="font-semibold text-gray-900 mb-1">Interview Schedule</h3>
+          <h3 className="font-semibold text-gray-900 mb-1">Interview schedule</h3>
           <p className="text-sm text-gray-400">Schedule Google Meet interviews and analyse transcripts with AI after each session.</p>
         </div>
         <a href="/api/calendar/auth" className="shrink-0 px-4 py-2 text-xs font-semibold rounded-xl border border-gray-200 text-gray-600 hover:border-gray-300 whitespace-nowrap">
-          Connect Google Calendar →
+          Connect Google Calendar
         </a>
       </div>
 
@@ -409,14 +422,14 @@ function InterviewsTab({ candidates, onViewProfile }: { candidates: Candidate[];
                 <div key={c.id} className="flex items-center justify-between gap-4 py-2 border-b border-gray-50 last:border-0">
                   <button className="text-left min-w-0" onClick={() => onViewProfile(c)}>
                     <p className="text-sm font-medium text-gray-900 hover:text-orange-600 transition-colors truncate">{name}</p>
-                    <p className="text-xs text-gray-400">{c.current_role ?? "—"}</p>
+                    <p className="text-xs text-gray-400">{c.current_role}</p>
                   </button>
                   <button
                     onClick={() => setScheduling({ id: c.id, name, round: isInterview ? 2 : 1 })}
                     className="px-3 py-1.5 text-white text-xs font-semibold rounded-lg hover:opacity-90 transition-all shrink-0"
                     style={{ background: SHIPROCKET_ORANGE }}
                   >
-                    Schedule {isInterview ? "Round 2" : "Screening call"} →
+                    Schedule {isInterview ? "round 2" : "screening call"}
                   </button>
                 </div>
               );
@@ -442,13 +455,18 @@ function InterviewsTab({ candidates, onViewProfile }: { candidates: Candidate[];
                   {scheduledDate && ` · ${scheduledDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} ${scheduledDate.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })} IST`}
                   {iv.duration_minutes && ` · ${iv.duration_minutes}m`}
                 </p>
-                {iv.ai_analysis && <p className="text-xs text-green-600 mt-1">✓ AI analysis complete</p>}
+                {iv.ai_analysis && (
+                  <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                    <Check className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                    AI analysis complete
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {iv.meet_link && (
                   <a href={iv.meet_link} target="_blank" rel="noopener noreferrer"
                     className="px-3 py-1.5 border border-gray-200 text-gray-600 text-xs font-medium rounded-lg hover:border-gray-300 transition-colors">
-                    Join Meet →
+                    Join Meet
                   </a>
                 )}
                 <button

@@ -199,7 +199,7 @@ export function SetupCheck({
                 <p className="mt-2 text-xs text-zinc-400">
                   {voiceHeard
                     ? "Sounding great."
-                    : "Say something — “testing, one two” works."}
+                    : "Say something. “Testing, one two” works."}
                 </p>
               </div>
             )}

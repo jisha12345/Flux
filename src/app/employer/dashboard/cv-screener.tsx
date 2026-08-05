@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Check, Phone, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -115,18 +116,18 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
           onClick={e => { if (e.target === e.currentTarget) setCallModalOpen(false); }}
         >
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md mx-4 overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div>
-                <p className="font-semibold text-gray-900">Schedule AI Voice Screen</p>
+                <p className="font-semibold text-gray-900">Schedule AI voice screen</p>
                 <p className="text-xs text-gray-400 mt-0.5">Automated telephonic screening via Twenty2</p>
               </div>
               <button
                 onClick={() => setCallModalOpen(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500 transition-colors text-xl leading-none"
+                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-500 transition-colors"
                 aria-label="Close"
               >
-                ×
+                <X className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
               </button>
             </div>
             <div className="px-6 py-5 space-y-4">
@@ -152,7 +153,7 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
               </div>
               {callTriggered ? (
                 <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
-                  <span className="text-green-700 text-sm font-medium">✓ AI screening call scheduled</span>
+                  <span className="text-green-700 text-sm font-medium">AI screening call scheduled</span>
                   <button onClick={() => setCallModalOpen(false)} className="text-xs text-green-600 hover:underline">Close</button>
                 </div>
               ) : (
@@ -162,7 +163,7 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
                   className="w-full py-2.5 text-white font-semibold rounded-xl disabled:opacity-40 hover:opacity-90 transition-all text-sm"
                   style={{ background: OR }}
                 >
-                  {callingAI ? "Scheduling…" : "Schedule AI Call →"}
+                  {callingAI ? "Scheduling…" : "Schedule AI call"}
                 </button>
               )}
             </div>
@@ -178,7 +179,8 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl hover:opacity-90 transition-all"
             style={{ background: "rgba(242,101,34,0.08)", color: OR }}
           >
-            📞 Telephonic screen
+            <Phone className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+            Telephonic screen
           </button>
         </div>
         <p className="text-sm text-muted-foreground mb-6">Upload a PDF or Word document. AI will parse and score it against the selected job description.</p>
@@ -194,7 +196,8 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-semibold rounded-lg hover:opacity-90 transition-all"
                   style={{ background: OR }}
                 >
-                  + Create a JD
+                  <Plus className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                  Create a JD
                 </Link>
               </div>
             ) : (
@@ -245,7 +248,7 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
           </div>
 
           <div>
-            <p className="text-sm font-medium mb-2">AI Summary</p>
+            <p className="text-sm font-medium mb-2">AI summary</p>
             <p className="text-sm text-muted-foreground bg-gray-50 rounded-lg p-4">{result.summary}</p>
           </div>
 
@@ -266,27 +269,38 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
             <div>
               <p className="text-sm font-medium mb-2 text-green-600">Strengths</p>
               <ul className="space-y-1">
-                {result.strengths.map((s, i) => <li key={i} className="text-sm flex gap-2"><span className="text-green-500">✓</span>{s}</li>)}
+                {result.strengths.map((s, i) => (
+                  <li key={i} className="text-sm flex gap-2">
+                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0 mt-0.5" strokeWidth={1.75} aria-hidden="true" />
+                    {s}
+                  </li>
+                ))}
               </ul>
             </div>
             <div>
               <p className="text-sm font-medium mb-2 text-red-500">Gaps</p>
               <ul className="space-y-1">
-                {result.gaps.map((g, i) => <li key={i} className="text-sm flex gap-2"><span className="text-red-400">✗</span>{g}</li>)}
+                {result.gaps.map((g, i) => (
+                  <li key={i} className="text-sm flex gap-2">
+                    <X className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" strokeWidth={1.75} aria-hidden="true" />
+                    {g}
+                  </li>
+                ))}
               </ul>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-3 pt-2 border-t">
             {callTriggered ? (
-              <Badge variant="default" className="bg-green-600">AI call scheduled ✓</Badge>
+              <Badge variant="default" className="bg-green-600">AI call scheduled</Badge>
             ) : (
               <button
                 onClick={() => openCallModal({ name: result.name, phone: result.phone, fromCVResult: true })}
                 className="flex items-center gap-2 px-4 py-2 text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-all shadow-sm"
                 style={{ background: OR }}
               >
-                📞 Schedule AI Voice Screen
+                <Phone className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                Schedule AI voice screen
               </button>
             )}
             <Button
@@ -299,7 +313,8 @@ export default function CVScreener({ jobs }: { jobs: Job[] }) {
               onClick={() => openCallModal()}
               className="flex items-center gap-2 px-4 py-2 border border-gray-200 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-50 transition-all"
             >
-              📞 New telephonic screen
+              <Phone className="h-4 w-4 text-gray-400" strokeWidth={1.75} aria-hidden="true" />
+              New telephonic screen
             </button>
           </div>
         </div>

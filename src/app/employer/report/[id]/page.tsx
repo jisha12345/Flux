@@ -21,7 +21,7 @@ const notoSerif = Noto_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "Hyr Interview Results — Candidate Assessment",
+  title: "Hyr Interview Results: Candidate Assessment",
   robots: { index: false },
 };
 

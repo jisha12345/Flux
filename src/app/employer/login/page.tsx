@@ -3,6 +3,7 @@
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Check } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 
 async function signInWithGoogle() {
@@ -74,16 +75,16 @@ function LoginForm() {
 
   if (magicSent) {
     return (
-      <div className="text-center space-y-4">
-        <div
-          className="w-12 h-12 rounded-full flex items-center justify-center mx-auto"
-          style={{ background: "rgba(242,101,34,0.1)" }}
+      <div className="space-y-4">
+        <span
+          className="w-9 h-9 rounded-full flex items-center justify-center"
+          style={{ background: "rgba(242,101,34,0.12)" }}
         >
-          <span className="text-xl" style={{ color: SHIPROCKET_ORANGE }}>✓</span>
-        </div>
-        <h2 className="text-2xl font-bold text-gray-900">Check your inbox</h2>
-        <p className="text-gray-500 text-sm">
-          Magic link sent to <strong className="text-gray-900">{email}</strong>. Valid for one use.
+          <Check className="w-4 h-4" strokeWidth={2.25} style={{ color: SHIPROCKET_ORANGE }} aria-hidden="true" />
+        </span>
+        <h2 className="text-2xl font-semibold tracking-tight text-gray-900">Check your inbox</h2>
+        <p className="text-[15px] leading-[1.6] text-gray-500">
+          A sign-in link is on its way to <strong className="font-medium text-gray-900">{email}</strong>. It works once.
         </p>
       </div>
     );
@@ -96,13 +97,13 @@ function LoginForm() {
         <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: SHIPROCKET_ORANGE }}>
           <ShieldIcon className="w-4 h-4 fill-white" />
         </div>
-        <span className="font-bold text-xl text-gray-900">Reqr</span>
+        <span className="font-semibold text-lg tracking-tight text-gray-900">Reqr</span>
         <span className="text-xs text-gray-400">by Shiprocket</span>
       </Link>
 
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">Recruiter login</h1>
-        <p className="text-sm text-gray-500">Internal access only.</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-gray-900 mb-1">Recruiter login</h1>
+        <p className="text-sm text-gray-500">Access is limited to the hiring team.</p>
       </div>
 
       <div>
@@ -192,7 +193,7 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center px-6" style={{ background: "#F4F5F7" }}>
       <Suspense fallback={<div className="text-sm text-gray-400">Loading…</div>}>
-        <div className="w-full max-w-sm bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
+        <div className="w-full max-w-sm bg-white rounded-lg border border-gray-200 p-8">
           <LoginForm />
         </div>
       </Suspense>

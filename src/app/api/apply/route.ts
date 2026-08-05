@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceClient();
 
     // Get default JD for scoring if no job_id provided
-    const jobDescription = `Tech role at Shiprocket — looking for engineers who deeply use AI and build at scale.`;
+    const jobDescription = `Engineering role at Shiprocket. We look for engineers who use AI tools in their daily work and have built systems at scale.`;
 
     const scoring = await scoreApplication(jobDescription, answers).catch(() => null);
 

@@ -111,7 +111,7 @@ export default async function InterviewPage({
       <StateScreen
         tone="done"
         title="This interview has already been completed"
-        body={`Thanks — your interview for ${interview.role_title} at ${interview.company_name} has been submitted. The hiring team will be in touch.`}
+        body={`Your interview for ${interview.role_title} at ${interview.company_name} has been submitted. The hiring team will be in touch.`}
       />
     );
   }
@@ -129,7 +129,7 @@ export default async function InterviewPage({
     return (
       <StateScreen
         title="Something went wrong with this interview"
-        body="This interview hit a technical problem and can't continue on this link. Please contact the hiring team — they can send you a new invitation."
+        body="This interview hit a technical problem and can't continue on this link. Please contact the hiring team, who can send you a new invitation."
       />
     );
   }

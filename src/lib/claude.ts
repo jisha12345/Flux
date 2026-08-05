@@ -63,7 +63,7 @@ export async function generateAssessment(jobDescription: string): Promise<{ titl
         role: "user",
         content: `Create a technical assessment for this job: ${jobDescription}
 
-Generate 5 substantive questions that assess real technical depth and AI usage. Questions should reveal how candidates think, not just what they know.
+Generate 5 substantive questions that assess technical depth and AI usage. Favour questions that surface how a candidate reasons through a problem, the trade-offs they weigh, and how they verify their work.
 
 Respond in JSON: { "title": string, "questions": [{ "id": string, "text": string, "type": "text" }] }`,
       },

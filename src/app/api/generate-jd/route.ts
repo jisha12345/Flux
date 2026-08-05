@@ -24,7 +24,7 @@ Include these sections with markdown headers:
 ## Why Join Shiprocket
 - 2-3 compelling reasons
 
-Keep it sharp, specific, and appealing to top engineers. No fluff.`,
+Write plainly and specifically. Every line should tell an engineer something concrete about the work, the team, or the expectations. Avoid marketing language, em dashes, and filler.`,
     }],
   });
 

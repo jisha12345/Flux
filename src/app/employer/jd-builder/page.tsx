@@ -3,6 +3,15 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  AlertTriangle,
+  Check,
+  ClipboardPaste,
+  Loader2,
+  Sparkles,
+  Upload,
+  type LucideIcon,
+} from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
 const OR = "#F26522";
@@ -54,12 +63,20 @@ function renderMarkdown(text: string) {
         </h3>
       );
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
+      const start = i;
+      const items: string[] = [];
+      while (i < lines.length && (lines[i].startsWith("- ") || lines[i].startsWith("* "))) {
+        items.push(lines[i].slice(2));
+        i++;
+      }
       out.push(
-        <div key={i} className="flex gap-2.5 my-1.5 items-start">
-          <span className="mt-2 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: OR }} />
-          <span className="text-gray-700 text-[15px] leading-relaxed">{renderInline(line.slice(2))}</span>
-        </div>
+        <ul key={start} className="list-disc pl-5 my-1.5 space-y-1.5 marker:text-gray-400">
+          {items.map((item, j) => (
+            <li key={j} className="text-gray-700 text-[15px] leading-relaxed">{renderInline(item)}</li>
+          ))}
+        </ul>
       );
+      continue;
     } else if (line.trim() === "") {
       out.push(<div key={i} className="h-3" />);
     } else {
@@ -188,10 +205,10 @@ export default function JDBuilderPage() {
     setGenAssessmentLoading(false);
   }
 
-  const tabs: { id: TabId; label: string; icon: string }[] = [
-    { id: "generate", label: "Generate with AI", icon: "✦" },
-    { id: "upload", label: "Upload JD", icon: "↑" },
-    { id: "paste", label: "Paste JD", icon: "⌘" },
+  const tabs: { id: TabId; label: string; icon: LucideIcon }[] = [
+    { id: "generate", label: "Generate with AI", icon: Sparkles },
+    { id: "upload", label: "Upload JD", icon: Upload },
+    { id: "paste", label: "Paste JD", icon: ClipboardPaste },
   ];
 
   return (
@@ -207,13 +224,12 @@ export default function JDBuilderPage() {
             <span className="text-xs text-gray-400 font-medium">by Shiprocket</span>
           </Link>
           <span className="text-gray-200 font-light text-lg">/</span>
-          <span className="text-sm font-medium text-gray-500">JD Builder</span>
+          <span className="text-sm font-medium text-gray-500">JD builder</span>
         </div>
         <Link
           href="/employer/dashboard"
           className="flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors"
         >
-          <span>←</span>
           <span>Dashboard</span>
         </Link>
       </nav>
@@ -222,30 +238,33 @@ export default function JDBuilderPage() {
 
         {/* Page heading */}
         <div className="mb-2">
-          <h1 className="font-display text-3xl font-bold text-gray-900 tracking-tight">Job Description</h1>
-          <p className="text-gray-500 text-sm mt-1">Generate, upload, or paste a JD — then publish and generate a screening test.</p>
+          <h1 className="font-display text-3xl font-bold text-gray-900 tracking-tight">Job description</h1>
+          <p className="text-gray-500 text-sm mt-1">Generate, upload, or paste a job description, then publish it and create a screening test.</p>
         </div>
 
         {/* Input card */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
           {/* Tab bar */}
           <div className="flex border-b border-gray-100 px-6 pt-5">
-            {tabs.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className="relative mr-6 pb-3 text-sm font-medium transition-colors"
-                style={{ color: tab === t.id ? OR : "#9CA3AF" }}
-              >
-                <span className="flex items-center gap-1.5">
-                  <span className="text-xs">{t.icon}</span>
-                  {t.label}
-                </span>
-                {tab === t.id && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full" style={{ background: OR }} />
-                )}
-              </button>
-            ))}
+            {tabs.map(t => {
+              const Icon = t.icon;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className="relative mr-6 pb-3 text-sm font-medium transition-colors"
+                  style={{ color: tab === t.id ? OR : "#9CA3AF" }}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Icon className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                    {t.label}
+                  </span>
+                  {tab === t.id && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5" style={{ background: OR }} />
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           <div className="p-6">
@@ -264,7 +283,7 @@ export default function JDBuilderPage() {
                 </div>
                 {generateError && (
                   <div className="flex items-start gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-                    <span className="text-red-400 text-sm mt-0.5">⚠</span>
+                    <AlertTriangle className="h-3.5 w-3.5 text-red-400 mt-0.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
                     <p className="text-sm text-red-600">{generateError}</p>
                   </div>
                 )}
@@ -275,9 +294,9 @@ export default function JDBuilderPage() {
                   style={{ background: loading ? "#f0956a" : OR }}
                 >
                   {loading ? (
-                    <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />Generating…</>
+                    <><Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} aria-hidden="true" />Generating…</>
                   ) : (
-                    <><span>✦</span>Generate JD</>
+                    <><Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />Generate JD</>
                   )}
                 </button>
               </div>
@@ -291,7 +310,9 @@ export default function JDBuilderPage() {
                   className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-gray-200 rounded-xl py-12 cursor-pointer hover:border-orange-300 transition-colors"
                   style={{ background: uploading ? OR_LIGHT : "#FAFAFA" }}
                 >
-                  <span className="text-3xl">{uploading ? "⏳" : "↑"}</span>
+                  {uploading
+                    ? <Loader2 className="h-5 w-5 text-gray-400 animate-spin" strokeWidth={1.75} aria-hidden="true" />
+                    : <Upload className="h-5 w-5 text-gray-400" strokeWidth={1.75} aria-hidden="true" />}
                   <div className="text-center">
                     <p className="text-sm font-medium text-gray-700">{uploading ? "Uploading…" : "Click to upload"}</p>
                     <p className="text-xs text-gray-400 mt-0.5">PDF, Word (.doc/.docx), Excel (.xls/.xlsx), or .txt</p>
@@ -327,7 +348,7 @@ export default function JDBuilderPage() {
                   className="inline-flex items-center gap-2 px-6 py-2.5 text-white font-semibold rounded-xl disabled:opacity-40 hover:opacity-90 transition-all text-sm shadow-sm"
                   style={{ background: OR }}
                 >
-                  Use this JD →
+                  Use this JD
                 </button>
               </div>
             )}
@@ -336,15 +357,14 @@ export default function JDBuilderPage() {
 
         {/* JD preview */}
         {jd && (
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
             {/* Preview header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full" style={{ background: OR }} />
-                <span className="text-sm font-semibold text-gray-900 font-display">Job Description</span>
+                <span className="text-sm font-semibold text-gray-900 font-display">Job description</span>
                 {saved && (
                   <span className="ml-1 px-2 py-0.5 text-xs font-medium rounded-full" style={{ background: "rgba(34,197,94,0.1)", color: "#16a34a" }}>
-                    Published ✓
+                    Published
                   </span>
                 )}
               </div>
@@ -355,7 +375,7 @@ export default function JDBuilderPage() {
                     className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-all"
                     style={{ background: "rgba(242,101,34,0.08)", color: OR }}
                   >
-                    Screen CVs →
+                    Screen CVs
                   </Link>
                 )}
                 <button
@@ -367,20 +387,22 @@ export default function JDBuilderPage() {
                 <button
                   onClick={saveJD}
                   disabled={saved || !jd.trim()}
-                  className="px-4 py-1.5 text-sm font-semibold rounded-lg transition-all disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold rounded-lg transition-all disabled:opacity-50"
                   style={saved
                     ? { background: "rgba(34,197,94,0.1)", color: "#16a34a", border: "1px solid rgba(34,197,94,0.2)" }
                     : { background: OR, color: "#fff" }
                   }
                 >
-                  {saved ? "Published ✓" : "Publish JD"}
+                  {saved
+                    ? <><Check className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />Published</>
+                    : "Publish JD"}
                 </button>
               </div>
             </div>
 
             {saveError && (
               <div className="mx-6 mt-4 flex items-start gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-                <span className="text-red-400 text-sm mt-0.5">⚠</span>
+                <AlertTriangle className="h-3.5 w-3.5 text-red-400 mt-0.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
                 <p className="text-sm text-red-600">{saveError}</p>
               </div>
             )}
@@ -403,11 +425,11 @@ export default function JDBuilderPage() {
 
         {/* Screening assessment */}
         {jd && (
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-gray-900 font-display">Screening Assessment</p>
-                <p className="text-xs text-gray-400 mt-0.5">Auto-generate a 5-question test tied to this JD</p>
+                <p className="text-sm font-semibold text-gray-900 font-display">Screening assessment</p>
+                <p className="text-xs text-gray-400 mt-0.5">Generate a 5-question test tied to this JD</p>
               </div>
               {!assessmentSaved && (
                 <button
@@ -417,8 +439,8 @@ export default function JDBuilderPage() {
                   style={{ background: OR }}
                 >
                   {genAssessmentLoading ? (
-                    <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />Generating…</>
-                  ) : "Generate test →"}
+                    <><Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} aria-hidden="true" />Generating…</>
+                  ) : "Generate test"}
                 </button>
               )}
             </div>
@@ -448,7 +470,9 @@ export default function JDBuilderPage() {
                     }}
                     className="flex items-center gap-1.5 px-4 py-1.5 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
                   >
-                    {assessmentCopied ? "Copied ✓" : "Copy candidate link"}
+                    {assessmentCopied
+                      ? <><Check className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />Copied</>
+                      : "Copy candidate link"}
                   </button>
                   <Link
                     href={`/assessment/${assessment.id}`}
@@ -456,7 +480,7 @@ export default function JDBuilderPage() {
                     className="flex items-center gap-1.5 px-4 py-1.5 text-white text-sm font-semibold rounded-lg hover:opacity-90 transition-all"
                     style={{ background: OR }}
                   >
-                    Preview →
+                    Preview
                   </Link>
                 </div>
               </div>

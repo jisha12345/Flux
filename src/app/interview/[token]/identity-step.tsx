@@ -154,7 +154,7 @@ export function IdentityStep({
                     if (blobRef.current) void uploadPhoto(blobRef.current);
                   }}
                 >
-                  <RefreshCw className="h-3.5 w-3.5" /> Upload failed — retry
+                  <RefreshCw className="h-3.5 w-3.5" /> Upload failed. Retry
                 </GhostButton>
               )}
             </>

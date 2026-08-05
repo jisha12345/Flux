@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
   if (token) {
     const event = {
-      summary: title ?? `${round === 1 ? "Screening Call" : `Interview Round - ${round}`} — ${candidate_name}`,
+      summary: title ?? `${round === 1 ? "Screening call" : `Interview round ${round}`}: ${candidate_name}`,
       description: `Candidate: ${candidate_name}\nInterviewer: ${interviewer_name}\nRound: ${round}\n\nScheduled via Reqr by Shiprocket`,
       start: { dateTime: startTime.toISOString(), timeZone: "Asia/Kolkata" },
       end: { dateTime: endTime.toISOString(), timeZone: "Asia/Kolkata" },
