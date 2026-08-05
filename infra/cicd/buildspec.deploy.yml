@@ -4,6 +4,9 @@
 version: 0.2
 
 env:
+  # CodeBuild defaults to /bin/sh, where `set -o pipefail` is an illegal
+  # option and the whole phase dies with exit 2 before running anything.
+  shell: bash
   variables:
     DEPLOY_PATH: /home/ubuntu/apps/flux
     DEPLOY_USER: ubuntu
