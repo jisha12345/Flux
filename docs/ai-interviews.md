@@ -140,7 +140,8 @@ Base64-in-JSON cost a third more bytes on the heaviest stream on the wire.
 ## Interview flow
 
 1. Dashboard → **AI Interviews** → New interview → candidate + JD, language
-   (`en-IN` / `hi-IN`), duration → creates a row and a shareable token link.
+   (`en-IN` by default, with `hi-IN` as an explicit choice), duration → creates
+   a row and a shareable token link.
 2. Candidate opens `/interview/<token>`: consent → camera/mic/speaker check →
    identity snapshot → push-to-talk interview → done screen.
 3. Creating the link fires `POST /prepare/:token` at the gateway, which
@@ -152,10 +153,49 @@ Base64-in-JSON cost a third more bytes on the heaviest stream on the wire.
 4. On completion it runs the evaluation and writes an `InterviewReport`.
 5. Report renders at `/employer/report/<id>`; print to PDF from the toolbar.
 
+The first greeting and reconnect greeting are scripted from
+`ai_interviews.candidate_name`, not generated from CV context. That canonical
+name also wins over any stale name submitted alongside a selected candidate id.
+Manual and overtime endings use a scripted thank-you, and the browser waits for
+its local playback queue to drain before stopping the recorder.
+
 Both sides of the conversation are recorded: the camera track is mixed with
 mic + TTS playback through a `MediaStreamAudioDestinationNode`, and
 `MediaRecorder` POSTs 10-second chunks to the gateway, which finalises them to
-Supabase Storage.
+the private `interview-recordings` Supabase Storage bucket. The DB stores the
+object path in `ai_interviews.video_path`; the authenticated recording route
+mints a one-hour signed URL for recruiter playback from either the dashboard or
+report. Recording objects are never public.
+
+### Integrity signals
+
+Once the interview starts, the browser records tab-hidden durations, switches
+to another window, and exits from interview fullscreen. The gateway also notes
+answer breaks of at least 60 seconds. These append to `ai_interview_turns` as
+structured `system` turns, avoiding a second schema/runtime dependency while
+preserving an auditable event ledger in Supabase.
+
+Evaluation derives an integrity score deterministically. The job-fit score is
+kept separately as `content_percent`; integrity can only deduct points, and the
+overall deduction is capped at 20. The report shows the raw counts, durations,
+score math, and a clear caveat that focus signals do not prove misconduct.
+
+Candidates are told about this monitoring before consent. Browser APIs reveal
+only focus state and time away — never the contents of another tab or app.
+
+### Language and privacy guardrails
+
+New links default to English and the API falls back to `en-IN` for any missing
+or unsupported value. English sessions are hard-locked to English in the live
+prompt rather than following a candidate into another language. Bulbul v3 uses
+the `priya` voice by default unless `SARVAM_TTS_VOICE` overrides it.
+
+Blueprints, live turns and evaluation are all instructed to use only job-related
+JD/CV/experience evidence. The interviewer must never request passwords, OTPs,
+government IDs, bank/card details, contact details, exact addresses, medical
+information, protected-characteristic data, or salary-account details. A narrow
+transcript guard also redacts obvious emails, Indian phone numbers, PAN/Aadhaar
+formats, and passcodes if a candidate volunteers them.
 
 **Interruptions are safe.** Turns are persisted as they happen and the status
 stays `in_progress`, so reopening the link resumes: the interviewer welcomes

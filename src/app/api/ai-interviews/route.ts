@@ -14,6 +14,14 @@ function str(v: unknown): string {
   return String(v).trim();
 }
 
+function redactSensitiveContext(value: string): string {
+  return value
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email omitted]")
+    .replace(/\b[A-Z]{5}[0-9]{4}[A-Z]\b/gi, "[PAN omitted]")
+    .replace(/\b\d{4}[ -]?\d{4}[ -]?\d{4}\b/g, "[government ID omitted]")
+    .replace(/(?:\+?91[ -]?)?[6-9]\d{4}[ -]?\d{5}\b/g, "[phone omitted]");
+}
+
 /** "Label: value" line, or null when the value is empty. */
 function line(label: string, v: unknown): string | null {
   const text = str(v);
@@ -45,8 +53,19 @@ function synthesizeCvText(c: Row): string {
 }
 
 function synthesizeJdText(jd: Row): string {
+  const experienceRange =
+    str(jd.experience_range) ||
+    [jd.experience_min, jd.experience_max].filter((value) => value != null).map(str).join(" to ");
   return [
     line("Role", jd.title),
+    line(
+      "Experience required",
+      experienceRange
+        ? /years?/i.test(experienceRange)
+          ? experienceRange
+          : `${experienceRange} years`
+        : null,
+    ),
     block("About the role", jd.about_role ?? jd.description),
     block("Responsibilities", jd.responsibilities),
     block("Requirements", jd.requirements),
@@ -135,7 +154,10 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     if (candidate) {
       const c = candidate as Row;
-      if (!candidateName) candidateName = str(c.full_name ?? c.name);
+      // A selected candidate's canonical DB name always wins. Accepting a stale
+      // or mismatched client-supplied name is how one person's link can greet
+      // them as someone else.
+      candidateName = str(c.full_name) || str(c.name) || candidateName;
       if (!candidateEmail) candidateEmail = str(c.email) || null;
       if (!cvText) cvText = synthesizeCvText(c) || null;
     }
@@ -168,7 +190,12 @@ export async function POST(request: NextRequest) {
   if (!candidateName) return NextResponse.json({ error: "candidate_name is required" }, { status: 400 });
   if (!roleTitle) return NextResponse.json({ error: "role_title is required" }, { status: 400 });
 
+  // CV context should contain role evidence, not contact/government IDs. The
+  // gateway applies the same guard to anything volunteered during the call.
+  if (cvText) cvText = redactSensitiveContext(cvText);
+
   const token = randomBytes(18).toString("base64url");
+  const language = body.language === "hi-IN" ? "hi-IN" : "en-IN";
 
   const { data: interview, error } = await service
     .from("ai_interviews")
@@ -180,7 +207,7 @@ export async function POST(request: NextRequest) {
       candidate_email: candidateEmail,
       role_title: roleTitle,
       company_name: "Shiprocket",
-      language: body.language ?? "en-IN",
+      language,
       duration_minutes: body.duration_minutes ?? 30,
       jd_text: jdText,
       cv_text: cvText,

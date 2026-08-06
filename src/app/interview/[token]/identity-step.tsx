@@ -89,6 +89,16 @@ export function IdentityStep({
     setUpload("idle");
   }, []);
 
+  const startInterview = useCallback(() => {
+    // Fullscreen is best-effort (not supported on every browser). Starting it
+    // from this explicit click lets the interview record later exits without
+    // ever blocking a candidate whose browser refuses the request.
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      void document.documentElement.requestFullscreen().catch(() => {});
+    }
+    onStart();
+  }, [onStart]);
+
   return (
     <div className="w-full max-w-lg">
       <h1 className="text-2xl font-semibold tracking-tight text-zinc-100 [text-wrap:balance]">
@@ -184,7 +194,7 @@ export function IdentityStep({
       </label>
 
       <div className="mt-8 flex justify-end">
-        <PrimaryButton onClick={onStart} disabled={upload !== "done" || !confirmed}>
+        <PrimaryButton onClick={startInterview} disabled={upload !== "done" || !confirmed}>
           Start interview
         </PrimaryButton>
       </div>

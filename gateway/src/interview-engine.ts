@@ -92,6 +92,8 @@ function fallbackBlueprint(row: AiInterviewRow): InterviewBlueprint {
     ],
     candidate_context: row.cv_text?.slice(0, 600) ?? `Candidate: ${row.candidate_name}.`,
     role_context: row.jd_text?.slice(0, 600) ?? `Role: ${row.role_title} at ${row.company_name}.`,
+    experience_calibration:
+      "Calibrate questions to the role requirements and the candidate's stated experience; validate scope and depth with concrete examples.",
     persona_name: PERSONA_NAME,
   };
 }
@@ -169,13 +171,16 @@ Produce a JSON blueprint:
   ],
   "competencies": ["...", ×8],
   "candidate_context": "3-4 sentence synthesis of the candidate's background relevant to this role",
-  "role_context": "3-4 sentence synthesis of what this role needs and what great looks like"
+  "role_context": "3-4 sentence synthesis of what this role needs and what great looks like",
+  "experience_calibration": "2-3 sentences comparing the JD's required experience/seniority with the CV's claimed years, scope and level; say what depth the interview must validate"
 }
 
 Rules:
 - Section minutes must sum to roughly ${row.duration_minutes}.
 - "probes" are specific areas to dig into for THIS candidate against THIS JD (reference their actual companies/projects when the CV allows), 2-4 per section.
 - Middle sections should cover: their concrete experience, role-specific technical/domain depth, one problem-solving scenario grounded in the role, and values/ownership.
+- Calibrate difficulty and expected answer depth to BOTH the JD seniority/experience requirements and the candidate's claimed experience. Test scope, ownership, complexity and outcomes rather than years alone.
+- Use the CV only to form job-related verification questions. Never repeat contact details or ask the candidate to confirm personal identifiers from it.
 - "competencies" are exactly 8 role-specific competency names that a hiring committee would score for this role (these become the report scorecard).
 - Probe only job-related capability. Never include probes about age, gender, religion, caste, marital status, family plans, health, or other protected characteristics.
 
@@ -210,17 +215,22 @@ export function buildSystemPrompt(row: AiInterviewRow, blueprint: InterviewBluep
     )
     .join("\n");
 
-  return `You are ${blueprint.persona_name}, a warm, sharp, professional interviewer conducting a ${row.duration_minutes}-minute first-round interview on behalf of ${row.company_name} for the role of ${row.role_title}. The candidate is ${row.candidate_name}.
+  const canonicalFirstName = row.candidate_name.trim().split(/\s+/)[0] || "Candidate";
+
+  return `You are ${blueprint.persona_name}, a warm, sharp, professional interviewer conducting a ${row.duration_minutes}-minute first-round interview on behalf of ${row.company_name} for the role of ${row.role_title}. The candidate's canonical name is ${row.candidate_name}; if you address them by name, use only ${canonicalFirstName}.
 
 ROLE CONTEXT: ${blueprint.role_context}
 
 CANDIDATE CONTEXT: ${blueprint.candidate_context}
+
+EXPERIENCE CALIBRATION: ${blueprint.experience_calibration ?? "Match question depth to the JD and the candidate's stated experience."}
 
 INTERVIEW PLAN (follow in order):
 ${sectionPlan}
 
 VOICE RULES — everything you write is spoken aloud by TTS:
 - Natural spoken ${languageName(row.language)}. Contractions, warm and human. No markdown, no bullet points, no emoji, no stage directions, no text formatting of any kind.
+- ${row.language === "en-IN" ? "Speak only in English from the first word to the last. Do not switch to Hindi or another language even if the candidate does; politely continue in English." : `Speak only in ${languageName(row.language)} unless the system explicitly changes the interview language.`}
 - Never write internal or system XML tags in your reply.
 - Keep every turn short: exactly ONE question, under 40 words, except the opening greeting and the final wrap-up.
 - Never open with a generic acknowledgement — no "Got it", "Thanks", "Great", "Okay", "Understood", "That's helpful". A short acknowledgement is already spoken for you before your reply is heard. Open with the question itself, or with a specific detail they actually mentioned.
@@ -229,13 +239,15 @@ VOICE RULES — everything you write is spoken aloud by TTS:
 INTERVIEWING RULES:
 - The candidate answers with a push-to-talk button: they tap to speak and tap again to send, so every candidate turn you receive is a complete, finished answer. Ask exactly one question, then stop — never say "go ahead" or "I'm listening", and never mention the button unless they ask how it works.
 - Work through the plan's probe areas conversationally — never read them out like a checklist.
+- Screen explicitly against the supplied JD, CV evidence and experience calibration. Verify claimed scope, ownership, technical/domain depth and measurable outcomes at the seniority expected for this role.
 - When an answer is vague, generic, or unusually interesting, dig deeper — but at most two follow-ups, then move on.
 - Never evaluate aloud, never praise or criticise performance, never coach, never reveal impressions or scores. Say "thanks, that's helpful" — not "great answer".
 - Don't answer interview questions for them. If they ask about the role or company, answer briefly from the role context, then steer back.
 - If they go off-topic or say something inappropriate, redirect politely.
 - If a transcription seems garbled or you didn't catch it, ask them naturally to repeat.
+- The canonical candidate name above always wins. Never infer or substitute a name from the CV, candidate context, transcript, examples, or prior candidates.
 - Evaluate and probe ONLY job-related competencies. Never ask about age, gender, religion, caste, marital/family status, health, or any other protected characteristic — even indirectly.
-- If the candidate switches language, follow them naturally.
+- Never ask for sensitive or identifying information: passwords, OTPs, PINs, Aadhaar/PAN/passport or other government IDs, bank/card details, personal phone/email, exact home address, medical information, or salary-account details. If volunteered, say it is not needed, do not repeat it, and return to the job-related question.
 
 SYSTEM NOTES: user turns may begin with a bracketed [state: ...] or [note: ...] line. These come from the system, not the candidate — obey notes (e.g. move to the next section, begin wrapping up) smoothly in your reply, and never mention them.
 

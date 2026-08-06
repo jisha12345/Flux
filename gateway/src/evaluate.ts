@@ -4,6 +4,7 @@
  * exactly one place — the model proposes scores and narrative only.
  */
 import { env } from "./env.js";
+import { integrityAdjustment, summarizeIntegrity } from "./integrity.js";
 import { anthropic, extractJson } from "./interview-engine.js";
 import { loadTurns, updateInterview } from "./supabase.js";
 import {
@@ -29,7 +30,7 @@ function buildPrompt(row: AiInterviewRow, transcript: string): string {
     : "(derive 8 role-appropriate competencies yourself)";
   const isExec = row.blueprint?.role_level === "executive";
 
-  return `You are a senior assessment writer producing a formal candidate assessment report from a first-round AI interview. Your writing style: third person, past tense, measured, consultative, evidence-anchored — every claim grounded in specific companies, projects, metrics, or statements from the transcript. Every strength is paired with a calibration caveat. Watch areas are framed as gaps/unknowns to validate, never as failures. Never quote question-answer pairs verbatim; synthesize.
+  return `You are a senior assessment writer producing a formal candidate assessment report from a first-round AI interview. Your writing style: third person, past tense, measured, consultative, evidence-anchored — every claim grounded in specific companies, projects, metrics, or statements from the transcript. Every strength is paired with a calibration caveat. Watch areas are framed as gaps/unknowns to validate, never as failures. Never quote question-answer pairs verbatim; synthesize. Assess the evidence against the supplied JD, CV and expected experience level, not against generic role expectations. Never include or repeat passwords, OTPs, IDs, contact details, exact addresses, financial details, medical details, or other sensitive information even if it appears in source material.
 
 CANDIDATE: ${row.candidate_name}
 ROLE: ${row.role_title} at ${row.company_name}
@@ -48,7 +49,7 @@ ${transcript}
 
 Produce a JSON assessment:
 {
-  "overall_percent": <0-100 integer — your holistic hire-signal for this role at this level; calibrate honestly: 88+ only for genuinely exceptional interviews, 75-87 solid candidates worth progressing, 60-74 notable concerns, below 60 poor fit. A thin, evasive, or very short interview MUST score low>,
+  "overall_percent": <0-100 integer — the evidence-based JOB-FIT score before any browser-integrity adjustment; calibrate for this JD and experience level: 88+ only for genuinely exceptional interviews, 75-87 solid candidates worth progressing, 60-74 notable concerns, below 60 poor fit. A thin, evasive, or very short interview MUST score low>,
   "interview_stage": "Experience Round",
   "executive_summary": ["<paragraph: background + the strongest evidence from the interview>", "<paragraph: role fit + explicit statement of what was less complete and should be validated next round>"],
   "summary_stats": [<exactly 3 thematic rollups: { "label": "<2-3 word theme>", "score": <0-10, one decimal>, "caption": "<one line>" }>],
@@ -87,6 +88,7 @@ export async function evaluateInterview(row: AiInterviewRow): Promise<void> {
     .join("\n\n");
 
   const prompt = buildPrompt(row, transcript);
+  const integrity = summarizeIntegrity(turns);
 
   let raw: RawReport | null = null;
   let lastError: unknown = null;
@@ -114,11 +116,16 @@ export async function evaluateInterview(row: AiInterviewRow): Promise<void> {
   }
 
   // Derivations happen HERE, once — never trust model-assigned tiers/verdicts.
-  const overall = Math.round(Math.min(100, Math.max(0, raw.overall_percent)));
+  const contentPercent = Math.round(Math.min(100, Math.max(0, raw.overall_percent)));
+  const adjustment = integrityAdjustment(integrity.score);
+  const overall = Math.round(Math.min(100, Math.max(0, contentPercent + adjustment)));
   const report: InterviewReport = {
     ...raw,
     overall_percent: overall,
     verdict: verdictForPercent(overall),
+    content_percent: contentPercent,
+    integrity_adjustment: adjustment,
+    integrity,
     interview_stage: raw.interview_stage || "Experience Round",
     summary_stats: (raw.summary_stats ?? []).slice(0, 3).map((s) => ({ ...s, score: round1(s.score) })),
     competencies: (raw.competencies ?? []).slice(0, 8).map((c) => {

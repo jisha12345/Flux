@@ -38,6 +38,25 @@ export interface FocusCard {
   text: string;
 }
 
+export type IntegrityRiskLevel = "LOW" | "MEDIUM" | "HIGH";
+export type IntegrityEventType =
+  | "tab_hidden"
+  | "window_blur"
+  | "fullscreen_exit"
+  | "long_break";
+
+export interface IntegritySummary {
+  score: number;
+  risk_level: IntegrityRiskLevel;
+  tab_switches: number;
+  window_switches: number;
+  fullscreen_exits: number;
+  long_breaks: number;
+  total_away_seconds: number;
+  longest_away_seconds: number;
+  observations: string[];
+}
+
 export interface InterviewReport {
   overall_percent: number;
   verdict: Verdict;
@@ -60,6 +79,9 @@ export interface InterviewReport {
   why_progress: string[];
   final_round_focus: FocusCard[];
   final_assessment: [string, string];
+  content_percent?: number;
+  integrity_adjustment?: number;
+  integrity?: IntegritySummary;
 }
 
 /** THE single source of tier labels — never let the model assign tiers. */
@@ -92,6 +114,7 @@ export interface InterviewBlueprint {
   competencies: string[];
   candidate_context: string;
   role_context: string;
+  experience_calibration?: string;
 }
 
 export type InterviewStatus =

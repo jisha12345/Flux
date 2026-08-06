@@ -178,7 +178,11 @@ export default async function ReportPage({
 
   return (
     <Shell>
-      <ReportView row={row} report={row.report} />
+      <ReportView
+        row={row}
+        report={row.report}
+        recordingUrl={row.video_path ? `/api/ai-interviews/${row.id}/recording` : null}
+      />
     </Shell>
   );
 }

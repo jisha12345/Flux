@@ -28,10 +28,12 @@ import {
   type HistoryMessage,
 } from "./interview-engine.js";
 import { evaluateInterview } from "./evaluate.js";
+import { serializeIntegrityEvent } from "./integrity.js";
 import { pcm16LeRms } from "./pcm-vad.js";
+import { redactSensitiveText } from "./privacy.js";
 import { insertTurn, loadTurns, updateInterview } from "./supabase.js";
 import { cleanForTts, SentenceChunker } from "./voice-chunker.js";
-import type { AiInterviewRow } from "./types.js";
+import type { AiInterviewRow, IntegrityEventType, TurnRow } from "./types.js";
 
 const WS_OPEN = 1;
 
@@ -41,6 +43,8 @@ const SILENCE_NUDGE_MS = 25_000;
 const OVERTIME_WRAP_MIN = 3;
 /** Absolute ceiling past planned duration — hard-complete the interview. */
 const OVERTIME_HARD_MIN = 10;
+/** Waiting this long for an answer is recorded as an extended break. */
+const LONG_BREAK_MS = 60_000;
 
 /** Raw int16 RMS above which a mic frame counts as "someone actually spoke". */
 const VOICED_RMS = 500;
@@ -84,6 +88,7 @@ export class InterviewSession {
   private spokeAudio = false;
   private started = false;
   private completed = false;
+  private closing = false;
   private closed = false;
 
   private micOpen = false;
@@ -97,9 +102,11 @@ export class InterviewSession {
   private lastQuestion = "";
   private transcriptPreview = "";
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private waitingSinceMs = 0;
   private nudgedThisQuestion = false;
   private currentTurn: Promise<void> = Promise.resolve();
   private readonly bg = new Set<Promise<unknown>>();
+  private readonly writes = new Set<Promise<void>>();
 
   constructor(
     private readonly ws: WebSocket,
@@ -166,7 +173,13 @@ export class InterviewSession {
   }
 
   handleMessage(raw: string): void {
-    let msg: { type?: string; data?: unknown };
+    let msg: {
+      type?: string;
+      data?: unknown;
+      event?: unknown;
+      occurred_at?: unknown;
+      duration_seconds?: unknown;
+    };
     try {
       msg = JSON.parse(raw);
     } catch {
@@ -203,12 +216,17 @@ export class InterviewSession {
         return;
       case "text": {
         const text = typeof msg.data === "string" ? msg.data.trim() : "";
-        if (!text || this.completed) return;
+        if (!text || this.completed || this.closing) return;
+        this.recordLongBreakIfNeeded();
         this.beginTurn(text);
         return;
       }
+      case "integrity":
+        this.captureIntegrityEvent(msg.event, msg.occurred_at, msg.duration_seconds);
+        return;
       case "end":
-        this.spawn(this.complete("candidate_ended"));
+        this.recordLongBreakIfNeeded();
+        this.spawn(this.closeWithThanks("candidate_ended"));
         return;
       default:
         return;
@@ -232,7 +250,8 @@ export class InterviewSession {
 
   /** Candidate tapped "speak". Takes the floor — including from the interviewer. */
   private openMic(): void {
-    if (this.completed || this.micOpen) return;
+    if (this.completed || this.closing || this.micOpen) return;
+    this.recordLongBreakIfNeeded();
     this.clearSilenceTimer();
     // A tap during the question is a deliberate interruption, never an accident.
     if (this.turnActive) this.cancelTurn();
@@ -252,7 +271,7 @@ export class InterviewSession {
   private closeMic(): void {
     if (!this.micOpen) return;
     this.micOpen = false;
-    if (this.completed) return;
+    if (this.completed || this.closing) return;
 
     if (this.voicedFrames < MIN_VOICED_FRAMES) {
       // Empty tap (mis-tap, muted mic, hardware trouble) — never send it to the
@@ -303,7 +322,7 @@ export class InterviewSession {
       transcript = "";
     }
     if (this.turnTiming) this.turnTiming.sttMs = Date.now() - startedAt;
-    if (this.completed || this.micOpen) return; // mic re-opened while flushing
+    if (this.completed || this.closing || this.micOpen) return; // mic re-opened or interview ended while flushing
     if (transcript) {
       this.beginTurn(transcript);
     } else {
@@ -338,20 +357,41 @@ export class InterviewSession {
       this.startedAtMs = Date.now();
       void updateInterview(this.row.id, { status: "in_progress", started_at: new Date().toISOString() });
     }
-    const opening =
-      this.history.length === 0
-        ? "[The candidate has just joined the call. Greet them warmly by name, introduce yourself and how the interview will flow in a couple of sentences, then ask your first question. Begin your reply with [SECTION:intro].]"
-        : "[The candidate has reconnected after a drop. Welcome them back briefly and repeat your last question so they can continue.]";
-    this.beginTurn(opening, { synthetic: true });
+    const firstName = this.canonicalFirstName();
+    if (this.history.length === 0) {
+      // The greeting is deliberately scripted: the canonical DB name is never
+      // left to model inference from CV context or a prior candidate.
+      const opening = this.scriptedOpening(firstName);
+      this.enterSection("intro");
+      this.spawn(
+        this.speakLine(opening, {
+          persist: true,
+          historyUser: "[The candidate joined the interview and received the standard introduction.]",
+        }),
+      );
+      return;
+    }
+    const reconnect =
+      this.row.language === "hi-IN"
+        ? this.lastQuestion
+          ? `वापस स्वागत है, ${firstName}। चलिए आगे बढ़ते हैं। ${this.lastQuestion}`
+          : `वापस स्वागत है, ${firstName}। चलिए इंटरव्यू आगे बढ़ाते हैं।`
+        : this.lastQuestion
+          ? `Welcome back, ${firstName}. Let's continue. ${this.lastQuestion}`
+          : `Welcome back, ${firstName}. Let's continue with the interview.`;
+    this.spawn(this.speakLine(reconnect));
   }
 
   private handleRepeat(): void {
-    if (!this.lastQuestion || this.turnActive || this.micOpen || this.completed) return;
+    if (!this.lastQuestion || this.turnActive || this.micOpen || this.completed || this.closing) return;
+    this.recordLongBreakIfNeeded();
+    this.clearSilenceTimer();
     const line = cleanForTts(this.lastQuestion);
     if (line) this.spawn(this.speakLine(line));
   }
 
   private beginTurn(userText: string, opts: { synthetic?: boolean } = {}): void {
+    if (this.completed || this.closing) return;
     this.cancelTurn();
     this.clearSilenceTimer();
     this.nudgedThisQuestion = false;
@@ -405,10 +445,12 @@ export class InterviewSession {
     this.spokeAudio = false;
 
     if (!synthetic) {
-      this.transcriptPreview = userText;
-      this.send({ type: "transcript", role: "user", text: userText, final: true });
+      const safeUserText = redactSensitiveText(userText);
+      this.transcriptPreview = safeUserText;
+      this.send({ type: "transcript", role: "user", text: safeUserText, final: true });
       const seq = this.seq++;
-      void insertTurn(this.row.id, seq, "candidate", userText, this.currentSectionId()).catch(() => {});
+      this.persistTurn(seq, "candidate", safeUserText, this.currentSectionId());
+      userText = safeUserText;
     }
     this.send({ type: "status", data: "thinking" });
 
@@ -500,7 +542,7 @@ export class InterviewSession {
       this.history.push({ role: "user", content }, { role: "assistant", content: cleanText });
       if (!endRequested) this.lastQuestion = cleanText;
       const seq = this.seq++;
-      void insertTurn(this.row.id, seq, "interviewer", cleanText, this.currentSectionId()).catch(() => {});
+      this.persistTurn(seq, "interviewer", cleanText, this.currentSectionId());
     } else {
       // Carry the candidate's answer into the next turn rather than leaving
       // history ending on a user message.
@@ -532,8 +574,12 @@ export class InterviewSession {
     const overHardCap =
       this.startedAtMs > 0 &&
       Date.now() - this.startedAtMs > (this.row.duration_minutes + OVERTIME_HARD_MIN) * 60_000;
-    if (endRequested || overHardCap) {
-      await this.complete(endRequested ? "interview_finished" : "overtime");
+    if (endRequested) {
+      await this.complete("interview_finished");
+      return;
+    }
+    if (overHardCap) {
+      await this.closeWithThanks("overtime");
       return;
     }
     this.send({ type: "status", data: "listening" });
@@ -559,7 +605,10 @@ export class InterviewSession {
   }
 
   /** Speak a canned line through TTS without an LLM round-trip. */
-  private async speakLine(line: string): Promise<void> {
+  private async speakLine(
+    line: string,
+    options: { persist?: boolean; historyUser?: string; completeReason?: string } = {},
+  ): Promise<void> {
     this.turnId += 1;
     const myTurn = this.turnId;
     this.turnActive = true;
@@ -567,7 +616,6 @@ export class InterviewSession {
     this.audioSeq = 0;
     this.spokeAudio = false; // `emitAudio` announces "speaking" once audio lands
     this.send({ type: "assistant_text", text: line });
-    this.send({ type: "assistant_delta", text: line });
 
     await this.ensureTts();
     const tts = this.tts;
@@ -578,14 +626,41 @@ export class InterviewSession {
       /* barge-in deliberately drops this TTS socket */
     }
     if (this.tts === tts) this.tts = null;
-    this.spawn(this.ensureTts());
     if (myTurn !== this.turnId || !this.turnActive) return;
 
     this.turnActive = false;
     this.audioOpen = false;
     this.send({ type: "audio_done" });
+    if (options.persist) {
+      const historyUser = options.historyUser ?? "[The system delivered a scripted interviewer message.]";
+      this.history.push(
+        { role: "user", content: historyUser },
+        { role: "assistant", content: line },
+      );
+      this.lastQuestion = line;
+      const seq = this.seq++;
+      this.persistTurn(seq, "interviewer", line, this.currentSectionId());
+    }
+    if (options.completeReason) {
+      await this.complete(options.completeReason);
+      return;
+    }
     this.send({ type: "status", data: "listening" });
     this.armSilenceTimer();
+  }
+
+  private async closeWithThanks(reason: string): Promise<void> {
+    if (this.completed || this.closing) return;
+    this.closing = true;
+    this.micOpen = false;
+    this.cancelTurn();
+    this.clearSilenceTimer();
+    const line = this.scriptedClosing();
+    await this.speakLine(line, {
+      persist: true,
+      historyUser: `[The interview ended: ${reason}. Deliver the standard closing.]`,
+      completeReason: reason,
+    });
   }
 
   private async complete(reason: string): Promise<void> {
@@ -595,6 +670,9 @@ export class InterviewSession {
     this.clearSilenceTimer();
     console.log(`[session] interview ${this.row.id} completed (${reason})`);
     await updateInterview(this.row.id, { status: "completed", ended_at: new Date().toISOString() });
+    // Evaluation must see the final answer, closing, and integrity signals even
+    // though turn persistence is intentionally off the audio-critical path.
+    await Promise.allSettled([...this.writes]);
     this.send({ type: "completed" });
     // Evaluation runs in this process regardless of the socket's fate.
     const row = { ...this.row, status: "completed" as const };
@@ -604,8 +682,12 @@ export class InterviewSession {
   // ── silence nudge ─────────────────────────────────────────────────────────
 
   private armSilenceTimer(): void {
-    this.clearSilenceTimer();
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
+    }
     if (this.completed || !this.started || this.nudgedThisQuestion || this.micOpen) return;
+    if (!this.waitingSinceMs) this.waitingSinceMs = Date.now();
     this.silenceTimer = setTimeout(() => {
       if (this.turnActive || this.micOpen || this.completed) return;
       this.nudgedThisQuestion = true;
@@ -619,6 +701,89 @@ export class InterviewSession {
       clearTimeout(this.silenceTimer);
       this.silenceTimer = null;
     }
+    this.waitingSinceMs = 0;
+  }
+
+  private recordLongBreakIfNeeded(): void {
+    if (!this.waitingSinceMs) return;
+    const durationMs = Date.now() - this.waitingSinceMs;
+    this.waitingSinceMs = 0;
+    if (durationMs < LONG_BREAK_MS) return;
+    this.persistIntegrityEvent("long_break", new Date(Date.now() - durationMs), durationMs / 1000);
+  }
+
+  private captureIntegrityEvent(event: unknown, occurredAt: unknown, duration: unknown): void {
+    if (!this.started || this.completed) return;
+    if (
+      event !== "tab_hidden" &&
+      event !== "window_blur" &&
+      event !== "fullscreen_exit"
+    ) {
+      return;
+    }
+    const parsedAt = new Date(typeof occurredAt === "string" ? occurredAt : Date.now());
+    const safeAt = Number.isNaN(parsedAt.getTime()) ? new Date() : parsedAt;
+    const safeDuration = typeof duration === "number" && Number.isFinite(duration) ? duration : 0;
+    this.persistIntegrityEvent(event, safeAt, safeDuration);
+  }
+
+  private persistIntegrityEvent(
+    eventType: IntegrityEventType,
+    occurredAt: Date,
+    durationSeconds: number,
+  ): void {
+    const seq = this.seq++;
+    const text = serializeIntegrityEvent({
+      event_type: eventType,
+      occurred_at: occurredAt.toISOString(),
+      duration_seconds: durationSeconds,
+    });
+    this.persistTurn(seq, "system", text, this.currentSectionId());
+  }
+
+  private persistTurn(
+    seq: number,
+    role: TurnRow["role"],
+    text: string,
+    section: string | null,
+  ): void {
+    const write = insertTurn(this.row.id, seq, role, text, section);
+    this.writes.add(write);
+    void write.finally(() => this.writes.delete(write));
+  }
+
+  private canonicalFirstName(): string {
+    const first = this.row.candidate_name.trim().split(/\s+/)[0] || "Candidate";
+    return first.replace(/[\r\n<>[\]{}]/g, "").slice(0, 60) || "Candidate";
+  }
+
+  private scriptedOpening(firstName: string): string {
+    if (this.row.language === "hi-IN") {
+      return (
+        `नमस्ते ${firstName}, मैं ${this.row.blueprint?.persona_name ?? "Aria"} हूँ, ${this.row.company_name} की एआई इंटरव्यूअर। ` +
+        `हम ${this.row.role_title} भूमिका के लिए आपके अनुभव पर बात करेंगे। शुरुआत में, अपनी वर्तमान भूमिका और इस अवसर से जुड़े सबसे प्रासंगिक अनुभव के बारे में संक्षेप में बताइए।`
+      );
+    }
+    return (
+      `Hello ${firstName}, I'm ${this.row.blueprint?.persona_name ?? "Aria"}, your AI interviewer for ` +
+      `${this.row.company_name}. We'll discuss your experience for the ${this.row.role_title} role. ` +
+      "To begin, could you briefly introduce your current role and the experience most relevant to this opportunity?"
+    );
+  }
+
+  private scriptedClosing(): string {
+    const firstName = this.canonicalFirstName();
+    if (this.row.language === "hi-IN") {
+      return (
+        `धन्यवाद, ${firstName}। ${this.row.role_title} भूमिका के लिए आपका इंटरव्यू यहीं पूरा होता है। ` +
+        `${this.row.company_name} की टीम आपके इंटरव्यू की समीक्षा करेगी और अगले चरणों के बारे में आपसे संपर्क करेगी। आपका दिन शुभ हो।`
+      );
+    }
+    return (
+      `Thank you, ${firstName}. That brings us to the end of your interview ` +
+      `for the ${this.row.role_title} role. We appreciate your time. The ${this.row.company_name} ` +
+      "team will review your interview and be in touch about next steps. Have a good day."
+    );
   }
 
   // ── plumbing ──────────────────────────────────────────────────────────────

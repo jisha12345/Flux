@@ -257,8 +257,8 @@ export default function InterviewClient(props: InterviewClientProps) {
                     },
                     {
                       icon: ShieldCheck,
-                      title: "Evaluated fairly",
-                      text: "You're assessed only on job-related competencies, nothing else.",
+                      title: "Evaluated fairly and transparently",
+                      text: "You're assessed on job-related competencies. Tab changes, window switches, fullscreen exits, and extended answer breaks are logged as integrity signals and shown to the hiring team.",
                     },
                   ].map(({ icon: Icon, title, text }) => (
                     <div key={title} className="flex gap-4 p-4">
@@ -283,7 +283,7 @@ export default function InterviewClient(props: InterviewClientProps) {
                     className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded accent-emerald-500"
                   />
                   <span>
-                    I consent to this interview being recorded and evaluated by AI
+                    I consent to this interview being recorded, evaluated by AI, and monitored for the integrity signals described above
                   </span>
                 </label>
 

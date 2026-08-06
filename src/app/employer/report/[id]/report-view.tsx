@@ -4,6 +4,7 @@ import {
   HYR,
   type AiInterviewRow,
   type CompetencyResult,
+  type IntegritySummary,
   type InterviewReport,
 } from "@/lib/interview-types";
 import PrintButton from "./print-button";
@@ -243,6 +244,102 @@ function ScorecardPage({
   );
 }
 
+// ── Interview integrity ─────────────────────────────────────────────────────
+
+function formatSeconds(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
+}
+
+function IntegrityPage({
+  integrity,
+  contentPercent,
+  adjustment,
+  overallPercent,
+  page,
+  total,
+}: {
+  integrity: IntegritySummary;
+  contentPercent: number;
+  adjustment: number;
+  overallPercent: number;
+  page: number;
+  total: number;
+}) {
+  const signals = [
+    { label: "Tab switches", value: integrity.tab_switches },
+    { label: "Window switches", value: integrity.window_switches },
+    { label: "Fullscreen exits", value: integrity.fullscreen_exits },
+    { label: "Long breaks", value: integrity.long_breaks },
+  ];
+
+  return (
+    <section className="report-page">
+      <RunningHeader />
+      <H2>Interview Integrity</H2>
+
+      <div className="hyr-integrity-hero avoid-break">
+        <div>
+          <div className="hyr-label">Integrity score</div>
+          <div className="hyr-integrity-score">{integrity.score}/100</div>
+        </div>
+        <div>
+          <div className="hyr-label">Signal risk</div>
+          <div className={`hyr-integrity-risk${integrity.risk_level === "LOW" ? "" : " is-warn"}`}>
+            {integrity.risk_level}
+          </div>
+        </div>
+        <div>
+          <div className="hyr-label">Longest time away</div>
+          <div className="hyr-integrity-duration">
+            {formatSeconds(integrity.longest_away_seconds)}
+          </div>
+        </div>
+      </div>
+
+      <div className="hyr-integrity-grid avoid-break">
+        {signals.map((signal) => (
+          <div key={signal.label}>
+            <div className="hyr-label">{signal.label}</div>
+            <div className="hyr-integrity-count">{signal.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <H2>Recorded Observations</H2>
+      <ul className="hyr-ul">
+        {integrity.observations.map((observation) => (
+          <li key={observation}>{observation}</li>
+        ))}
+      </ul>
+
+      <H2>Overall Score Impact</H2>
+      <div className="hyr-score-impact avoid-break">
+        <div>
+          <span>Job-fit assessment</span>
+          <strong>{contentPercent}%</strong>
+        </div>
+        <div>
+          <span>Capped integrity adjustment</span>
+          <strong>{adjustment} points</strong>
+        </div>
+        <div>
+          <span>Final overall score</span>
+          <strong>{overallPercent}%</strong>
+        </div>
+      </div>
+      <p className="hyr-note">
+        Focus and break signals provide review context; they do not by themselves prove misconduct.
+        The adjustment is deterministic and capped at 20 points.
+      </p>
+
+      <PageFooter page={page} total={total} />
+    </section>
+  );
+}
+
 // ── Pages 3–5: competency deep-dive ─────────────────────────────────────────
 
 function CompetencyCard({ comp, number }: { comp: CompetencyResult; number: number }) {
@@ -415,12 +512,14 @@ function FinalPage({
 export default function ReportView({
   row,
   report,
+  recordingUrl,
 }: {
   row: AiInterviewRow;
   report: InterviewReport;
+  recordingUrl: string | null;
 }) {
   const compPages = chunk(report.competencies, 3);
-  const totalPages = 3 + compPages.length;
+  const totalPages = 3 + compPages.length + (report.integrity ? 1 : 0);
   const positive =
     report.verdict === "STRONG HIRE" || report.verdict === "RECOMMENDED TO PROGRESS";
 
@@ -450,7 +549,19 @@ export default function ReportView({
               {report.verdict}
             </span>
           </div>
-          <PrintButton />
+          <div className="flex shrink-0 items-center gap-2">
+            {recordingUrl ? (
+              <a
+                href={recordingUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50"
+              >
+                Watch recording
+              </a>
+            ) : null}
+            <PrintButton />
+          </div>
         </div>
       </header>
 
@@ -472,6 +583,16 @@ export default function ReportView({
             />
           );
         })}
+        {report.integrity ? (
+          <IntegrityPage
+            integrity={report.integrity}
+            contentPercent={report.content_percent ?? report.overall_percent}
+            adjustment={report.integrity_adjustment ?? 0}
+            overallPercent={report.overall_percent}
+            page={3 + compPages.length}
+            total={totalPages}
+          />
+        ) : null}
         <FinalPage report={report} page={totalPages} total={totalPages} />
       </main>
     </>

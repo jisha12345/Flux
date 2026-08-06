@@ -103,6 +103,7 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
   const [candId, setCandId] = useState("");
   const [manualName, setManualName] = useState("");
   const [manualEmail, setManualEmail] = useState("");
+  const [manualCvText, setManualCvText] = useState("");
   const [jdMode, setJdMode] = useState<"pick" | "paste">(jobs.length > 0 ? "pick" : "paste");
   const [jobId, setJobId] = useState("");
   const [roleTitle, setRoleTitle] = useState("");
@@ -174,6 +175,7 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
     setCandFilter("");
     setManualName("");
     setManualEmail("");
+    setManualCvText("");
     setJobId("");
     setRoleTitle("");
     setJdText("");
@@ -197,6 +199,7 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
       } else {
         payload.candidate_name = manualName.trim();
         if (manualEmail.trim()) payload.candidate_email = manualEmail.trim();
+        if (manualCvText.trim()) payload.cv_text = manualCvText.trim();
       }
       if (jdMode === "pick") {
         payload.jd_id = jobId;
@@ -382,20 +385,28 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
                     </select>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      value={manualName}
-                      onChange={(e) => setManualName(e.target.value)}
-                      placeholder="Candidate name"
-                      className={inputCls}
-                    />
-                    <input
-                      type="email"
-                      value={manualEmail}
-                      onChange={(e) => setManualEmail(e.target.value)}
-                      placeholder="Email (optional)"
-                      className={inputCls}
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={manualName}
+                        onChange={(e) => setManualName(e.target.value)}
+                        placeholder="Candidate name"
+                        className={inputCls}
+                      />
+                      <input
+                        type="email"
+                        value={manualEmail}
+                        onChange={(e) => setManualEmail(e.target.value)}
+                        placeholder="Email (optional)"
+                        className={inputCls}
+                      />
+                    </div>
+                    <textarea
+                      value={manualCvText}
+                      onChange={(e) => setManualCvText(e.target.value)}
+                      placeholder="Paste CV or experience summary for JD-matched screening (omit contact details)"
+                      className={`${inputCls} min-h-[110px] resize-y`}
                     />
                   </div>
                 )}
@@ -451,7 +462,7 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
               {/* Settings */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Language</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Language (English default)</p>
                   <select value={language} onChange={(e) => setLanguage(e.target.value)} className={inputCls}>
                     {LANGUAGES.map((l) => (
                       <option key={l.value} value={l.value}>{l.label}</option>
@@ -553,7 +564,17 @@ export default function AiInterviewsTab({ candidates, jobs }: { candidates: Cand
                     {new Date(iv.created_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
                   </p>
                 </div>
-                <div className="col-span-2 flex justify-end">
+                <div className="col-span-2 flex justify-end gap-1.5">
+                  {iv.video_path && (
+                    <a
+                      href={`/api/ai-interviews/${iv.id}/recording`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-2.5 py-1.5 border border-gray-200 text-gray-600 text-xs font-medium rounded-lg hover:border-gray-300 transition-colors whitespace-nowrap"
+                    >
+                      Recording
+                    </a>
+                  )}
                   {(iv.status === "pending" || iv.status === "in_progress") && (
                     <button
                       onClick={() => copyLink(iv)}

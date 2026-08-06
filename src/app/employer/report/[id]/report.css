@@ -233,6 +233,82 @@
   color: var(--hyr-primary);
 }
 
+/* ── Interview integrity ──────────────────────────────────────────────── */
+
+.hyr-integrity-hero {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1pt solid var(--hyr-hairline);
+  background: var(--hyr-mint-faint);
+}
+
+.hyr-integrity-hero > div,
+.hyr-integrity-grid > div {
+  padding: 14pt;
+  text-align: center;
+}
+
+.hyr-integrity-hero > div + div,
+.hyr-integrity-grid > div + div {
+  border-left: 1pt solid var(--hyr-hairline);
+}
+
+.hyr-integrity-score,
+.hyr-integrity-duration,
+.hyr-integrity-count {
+  margin-top: 4pt;
+  color: var(--hyr-primary);
+  font-size: 20pt;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.hyr-integrity-duration {
+  font-size: 16pt;
+}
+
+.hyr-integrity-risk {
+  display: inline-block;
+  margin-top: 6pt;
+  padding: 3pt 8pt;
+  background: var(--hyr-mint);
+  color: var(--hyr-primary);
+  font-size: 10pt;
+  font-weight: 700;
+}
+
+.hyr-integrity-risk.is-warn {
+  background: var(--hyr-cream);
+  color: var(--hyr-amber);
+}
+
+.hyr-integrity-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 12pt;
+  border: 1pt solid var(--hyr-hairline);
+}
+
+.hyr-score-impact {
+  border: 1pt solid var(--hyr-hairline);
+}
+
+.hyr-score-impact > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12pt;
+  padding: 8pt 12pt;
+}
+
+.hyr-score-impact > div + div {
+  border-top: 1pt solid var(--hyr-hairline);
+}
+
+.hyr-score-impact strong {
+  color: var(--hyr-primary);
+}
+
 /* ── Cover: 3-column summary stat strip ───────────────────────────────── */
 
 .hyr-stat-strip {
@@ -598,6 +674,8 @@
 
   .hyr-stat-strip,
   .hyr-impact-grid,
+  .hyr-integrity-hero,
+  .hyr-integrity-grid,
   .hyr-risk-row,
   .hyr-snapshot,
   .hyr-fit-grid {
@@ -605,6 +683,8 @@
   }
 
   .hyr-stat-strip > div + div,
+  .hyr-integrity-hero > div + div,
+  .hyr-integrity-grid > div + div,
   .hyr-risk-row > div + div {
     border-left: 0;
     border-top: 1pt solid var(--hyr-hairline);

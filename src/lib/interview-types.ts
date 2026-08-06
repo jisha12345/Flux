@@ -51,6 +51,28 @@ export interface FocusCard {
   text: string;
 }
 
+export type IntegrityRiskLevel = "LOW" | "MEDIUM" | "HIGH";
+
+export type IntegrityEventType =
+  | "tab_hidden"
+  | "window_blur"
+  | "fullscreen_exit"
+  | "long_break";
+
+/** Browser focus signals are supporting evidence, never proof of misconduct. */
+export interface IntegritySummary {
+  /** Deterministic 0-100 integrity score before its capped report adjustment. */
+  score: number;
+  risk_level: IntegrityRiskLevel;
+  tab_switches: number;
+  window_switches: number;
+  fullscreen_exits: number;
+  long_breaks: number;
+  total_away_seconds: number;
+  longest_away_seconds: number;
+  observations: string[];
+}
+
 export interface InterviewReport {
   /** Headline metric, 0–100 integer. Its own figure — not competency average. */
   overall_percent: number;
@@ -87,6 +109,12 @@ export interface InterviewReport {
   final_round_focus: FocusCard[];
   /** [restates name + evidence, conditional recommendation close] */
   final_assessment: [string, string];
+  /** Model-assessed job-fit score before the deterministic integrity adjustment. */
+  content_percent?: number;
+  /** Non-positive points applied to content_percent to derive overall_percent. */
+  integrity_adjustment?: number;
+  /** Neutral browser-integrity evidence and deterministic scoring. */
+  integrity?: IntegritySummary;
 }
 
 /** THE single source of tier labels — the sample PDFs computed this in two
@@ -137,6 +165,8 @@ export interface InterviewBlueprint {
   competencies: string[];
   candidate_context: string;
   role_context: string;
+  /** JD-required seniority calibrated against the candidate's claimed experience. */
+  experience_calibration?: string;
 }
 
 // ── DB row ──────────────────────────────────────────────────────────────────
@@ -193,6 +223,12 @@ export type InterviewClientFrame =
   | { type: "mic_close" }
   | { type: "repeat" }
   | { type: "text"; data: string }
+  | {
+      type: "integrity";
+      event: IntegrityEventType;
+      occurred_at: string;
+      duration_seconds?: number;
+    }
   | { type: "end" };
 
 /**

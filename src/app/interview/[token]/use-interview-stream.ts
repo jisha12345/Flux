@@ -22,6 +22,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  IntegrityEventType,
   InterviewClientFrame,
   InterviewGatewayEvent,
 } from "@/lib/interview-types";
@@ -92,6 +93,11 @@ export interface InterviewStreamApi {
   repeat: () => void;
   end: () => void;
   sendText: (text: string) => void;
+  reportIntegrity: (
+    event: IntegrityEventType,
+    occurredAt: Date,
+    durationSeconds?: number
+  ) => void;
   teardown: () => void;
   /** Mixed mic + TTS audio track for the interview recording. */
   getMixedAudioTrack: () => MediaStreamTrack | null;
@@ -534,6 +540,21 @@ export function useInterviewStream(token: string): InterviewStreamApi {
           micOpenRef.current = false;
           setMicOpen(false);
           setHint(null);
+          // The gateway has finished *sending* the closing audio, but the
+          // browser may still have seconds scheduled for playback. Completing
+          // now starts recorder finalization and clips the thank-you mid-word.
+          // Hold completion until the local playback queue has drained.
+          const remaining = playbackRemaining();
+          if (remaining > 0.05) {
+            clearDeferredStatus();
+            deferredStatusRef.current = setTimeout(() => {
+              deferredStatusRef.current = null;
+              if (tornDownRef.current) return;
+              statusRef.current = "completed";
+              setStatus("completed");
+            }, Math.round(remaining * 1000) + 180);
+            return;
+          }
           setStatusAll("completed");
           return;
         case "error":
@@ -687,6 +708,18 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     [sendFrame]
   );
 
+  const reportIntegrity = useCallback(
+    (event: IntegrityEventType, occurredAt: Date, durationSeconds = 0) => {
+      sendFrame({
+        type: "integrity",
+        event,
+        occurred_at: occurredAt.toISOString(),
+        duration_seconds: Math.max(0, Math.round(durationSeconds)),
+      });
+    },
+    [sendFrame]
+  );
+
   const getMixedAudioTrack = useCallback((): MediaStreamTrack | null => {
     return mediaDestRef.current?.stream.getAudioTracks()[0] ?? null;
   }, []);
@@ -762,6 +795,7 @@ export function useInterviewStream(token: string): InterviewStreamApi {
     repeat,
     end,
     sendText,
+    reportIntegrity,
     teardown,
     getMixedAudioTrack,
     getAudioContext,

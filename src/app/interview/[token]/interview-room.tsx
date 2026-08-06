@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Repeat,
   Send,
+  ShieldCheck,
   X,
 } from "lucide-react";
 import { InterviewerOrb, orbStatusWord } from "./orb";
@@ -65,6 +66,7 @@ export function InterviewRoom({
     repeat,
     end,
     sendText,
+    reportIntegrity,
     getMixedAudioTrack,
   } = stream;
 
@@ -113,15 +115,26 @@ export function InterviewRoom({
   // ── Chunk uploads: strictly serialized — the gateway appends raw bodies ──
   const queueChunk = useCallback(
     (blob: Blob) => {
-      uploadChainRef.current = uploadChainRef.current.then(() =>
-        fetch(`${GATEWAY_URL}/upload/${token}/chunk`, {
-          method: "POST",
-          headers: { "content-type": "video/webm" },
-          body: blob,
+      uploadChainRef.current = uploadChainRef.current
+        .then(async () => {
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+              const response = await fetch(`${GATEWAY_URL}/upload/${token}/chunk`, {
+                method: "POST",
+                headers: { "content-type": "video/webm" },
+                body: blob,
+              });
+              if (response.ok) return;
+            } catch {
+              // Retry below. A single weak-network chunk must not lose the tape.
+            }
+            await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+          }
+          throw new Error("recording_chunk_upload_failed");
         })
-          .then(() => undefined)
-          .catch(() => undefined)
-      );
+        .catch(() => {
+          // Keep the chain usable so later chunks and finalization still run.
+        });
     },
     [token]
   );
@@ -175,10 +188,18 @@ export function InterviewRoom({
     }
     setRecording(false);
     await uploadChainRef.current;
-    try {
-      await fetch(`${GATEWAY_URL}/upload/${token}/finalize`, { method: "POST" });
-    } catch {
-      /* recording finalize is best-effort */
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await fetch(`${GATEWAY_URL}/upload/${token}/finalize`, {
+          method: "POST",
+        });
+        if (response.ok) break;
+      } catch {
+        /* retry below */
+      }
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
     }
     onFinished();
   }, [onFinished, token]);
@@ -201,6 +222,74 @@ export function InterviewRoom({
   useEffect(() => {
     if (status === "completed") void finish();
   }, [status, finish]);
+
+  // ── Interview integrity: tab, window, and fullscreen focus signals ──
+  // Browser APIs cannot see what another tab/window contains. We record only
+  // the focus transition and time away, then present it neutrally in the report.
+  useEffect(() => {
+    let hiddenAt: number | null = null;
+    let blurredAt: number | null = null;
+    let blurTimer: ReturnType<typeof setTimeout> | null = null;
+    let hadFullscreen = document.fullscreenElement !== null;
+
+    const active = () => startedRef.current && !finishingRef.current;
+    const clearBlurTimer = () => {
+      if (blurTimer) clearTimeout(blurTimer);
+      blurTimer = null;
+    };
+    const onVisibility = () => {
+      if (!active()) return;
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        // A tab switch often fires window.blur first. Cancel that pending event
+        // so one action never counts as both a tab and a window switch.
+        clearBlurTimer();
+        blurredAt = null;
+        return;
+      }
+      if (hiddenAt !== null) {
+        const startedAt = hiddenAt;
+        hiddenAt = null;
+        reportIntegrity("tab_hidden", new Date(startedAt), (Date.now() - startedAt) / 1000);
+      }
+    };
+    const onBlur = () => {
+      if (!active()) return;
+      clearBlurTimer();
+      blurTimer = setTimeout(() => {
+        blurTimer = null;
+        if (!document.hidden && active()) blurredAt = Date.now();
+      }, 350);
+    };
+    const onFocus = () => {
+      clearBlurTimer();
+      if (blurredAt !== null && active()) {
+        const startedAt = blurredAt;
+        blurredAt = null;
+        reportIntegrity("window_blur", new Date(startedAt), (Date.now() - startedAt) / 1000);
+      }
+    };
+    const onFullscreen = () => {
+      if (document.fullscreenElement) {
+        hadFullscreen = true;
+      } else if (hadFullscreen && active()) {
+        hadFullscreen = false;
+        reportIntegrity("fullscreen_exit", new Date());
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener("fullscreenchange", onFullscreen);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearBlurTimer();
+      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener("fullscreenchange", onFullscreen);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [reportIntegrity]);
 
   // ── Elapsed timer ──
   useEffect(() => {
@@ -263,7 +352,9 @@ export function InterviewRoom({
     setEnding(true);
     end();
     // If the gateway's `completed` never arrives, don't strand the candidate.
-    endFallbackRef.current = setTimeout(() => void finish(), 10000);
+    // A scripted closing can take more than ten seconds once TTS and local
+    // playback are included. This is only a true socket-failure escape hatch.
+    endFallbackRef.current = setTimeout(() => void finish(), 30_000);
   }, [end, finish]);
 
   useEffect(() => {
@@ -362,6 +453,12 @@ export function InterviewRoom({
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
               </span>
               REC
+            </span>
+          )}
+          {live && (
+            <span className="hidden items-center gap-1 text-[11px] text-zinc-400 sm:flex">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+              Integrity monitoring
             </span>
           )}
           <span className="font-mono text-xs tabular-nums text-zinc-400">
