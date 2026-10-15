@@ -366,7 +366,6 @@ export default function CVScreener({ jobs: initialJobs, onCandidateScreened }: {
                       <span className="text-sm truncate">{j.title}</span>
                     </div>
                     <button
-                      title="Delete this JD"
                       onClick={async e => {
                         e.stopPropagation();
                         if (!confirm(`Delete "${j.title}"? This cannot be undone.`)) return;
@@ -376,8 +375,8 @@ export default function CVScreener({ jobs: initialJobs, onCandidateScreened }: {
                         setJobList(next);
                         if (selectedJob === j.id) setSelectedJob(next[0]?.id ?? "");
                       }}
-                      className="ml-2 w-6 h-6 flex items-center justify-center rounded border border-red-200 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors shrink-0 text-base leading-none"
-                    >×</button>
+                      className="ml-3 px-2 py-1 text-xs font-medium rounded bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors shrink-0"
+                    >Delete</button>
                   </div>
                 ))}
               </div>

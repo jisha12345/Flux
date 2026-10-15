@@ -583,15 +583,14 @@ export default function DashboardClient({ userEmail, initialCandidates, initialJ
                           {job.is_active ? "Active" : "Inactive"}
                         </span>
                         <button
-                          title="Delete this JD"
                           onClick={async () => {
                             if (!confirm(`Delete "${job.title}"? This cannot be undone.`)) return;
                             const res = await fetch(`/api/jd?id=${job.id}`, { method: "DELETE" });
                             if (!res.ok) { alert("Delete failed — please try again."); return; }
                             setJobs(prev => prev.filter(j => j.id !== job.id));
                           }}
-                          className="w-7 h-7 flex items-center justify-center rounded-md border border-red-200 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors text-base leading-none"
-                        >×</button>
+                          className="px-2 py-1 text-xs font-medium rounded bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors"
+                        >Delete</button>
                       </div>
                     </div>
                   ))}
