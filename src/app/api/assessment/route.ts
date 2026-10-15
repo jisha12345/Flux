@@ -6,10 +6,11 @@ export async function GET(request: NextRequest) {
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-  const supabase = await createServerSupabaseClient();
+  // Use service client so unauthenticated candidates can fetch the assessment
+  const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("assessments")
-    .select("*")
+    .select("id, title, questions, time_limit_minutes")
     .eq("id", id)
     .single();
 

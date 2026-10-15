@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase";
+import { createServerSupabaseClient, createServiceClient } from "@/lib/supabase";
 
 const MASTER_EMAIL = "jisha.bawa@shiprocket.com";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://flux-swart-five.vercel.app";
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,18 +16,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only the master account can send invites" }, { status: 403 });
     }
 
-    const { error } = await supabase.auth.admin.generateLink({
-      type: "magiclink",
-      email,
-      options: {
-        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/auth/callback`,
-      },
-    });
+    const service = createServiceClient();
+    const redirectTo = `${SITE_URL}/auth/callback`;
 
-    if (error) throw error;
-    return NextResponse.json({ success: true });
+    // inviteUserByEmail creates the user (if new) + sends an invite email
+    const { error } = await service.auth.admin.inviteUserByEmail(email, { redirectTo });
+
+    if (error) {
+      // User already exists — generate a fresh magic link instead
+      if (error.message?.toLowerCase().includes("already") || error.status === 422) {
+        const { data: linkData, error: linkError } = await service.auth.admin.generateLink({
+          type: "magiclink",
+          email,
+          options: { redirectTo },
+        });
+        if (linkError) throw linkError;
+        // Return the action_link so the admin can share it manually
+        return NextResponse.json({
+          success: true,
+          existing_user: true,
+          action_link: (linkData as { properties?: { action_link?: string } })?.properties?.action_link ?? null,
+        });
+      }
+      throw error;
+    }
+
+    return NextResponse.json({ success: true, existing_user: false });
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: "Failed to send magic link" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to send invite" }, { status: 500 });
   }
 }

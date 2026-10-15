@@ -4,22 +4,34 @@ import { NextRequest, NextResponse } from "next/server";
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Public routes — never require auth
-  const isPublic =
-    pathname === "/" ||
-    pathname.startsWith("/apply") ||
-    pathname.startsWith("/assessment") ||
+  // Strictly public — no session check
+  const isStrict =
+    pathname.startsWith("/auth/") ||
     pathname.startsWith("/employer/login") ||
     pathname.startsWith("/employer/reset-password") ||
-    pathname.startsWith("/auth/") ||
+    pathname.startsWith("/assessment") ||
     pathname.startsWith("/api/apply") ||
     pathname.startsWith("/api/assessment") ||
+    pathname.startsWith("/api/check-access") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname.startsWith("/icon");
 
-  if (isPublic) return NextResponse.next();
+  if (isStrict) return NextResponse.next();
 
+  // Candidate-facing routes where recruiters should be blocked
+  const isCandidateRoute =
+    pathname === "/" ||
+    pathname.startsWith("/apply");
+
+  // Skip session fetch for candidate pages when no session cookie exists
+  // — avoids network round-trip for anonymous candidates
+  const hasSessionCookie = request.cookies.getAll().some(c => c.name.startsWith("sb-"));
+  if (isCandidateRoute && !hasSessionCookie) {
+    return NextResponse.next();
+  }
+
+  // Build response and create Supabase client
   const response = NextResponse.next({
     request: { headers: request.headers },
   });
@@ -40,18 +52,22 @@ export async function proxy(request: NextRequest) {
     }
   );
 
+  let session = null;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data } = await supabase.auth.getSession();
+    session = data.session;
+  } catch { /* treat as unauthenticated */ }
 
-    if (!session) {
-      if (pathname.startsWith("/api/")) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-      const loginUrl = new URL("/employer/login", request.url);
-      loginUrl.searchParams.set("next", pathname);
-      return NextResponse.redirect(loginUrl);
+  // Authenticated user on candidate route → send to dashboard
+  if (isCandidateRoute) {
+    if (session) {
+      return NextResponse.redirect(new URL("/employer/dashboard", request.url));
     }
-  } catch {
+    return NextResponse.next();
+  }
+
+  // Protected employer routes — require auth
+  if (!session) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -65,6 +81,8 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/",
+    "/apply/:path*",
     "/employer/dashboard/:path*",
     "/employer/jd-builder/:path*",
     "/api/employer/:path*",
@@ -75,5 +93,7 @@ export const config = {
     "/api/scrape/:path*",
     "/api/search-candidates/:path*",
     "/api/parse-profile/:path*",
+    "/api/admin/:path*",
+    "/api/send-magic-link/:path*",
   ],
 };

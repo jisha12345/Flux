@@ -370,7 +370,8 @@ export default function CVScreener({ jobs: initialJobs, onCandidateScreened }: {
                       onClick={async e => {
                         e.stopPropagation();
                         if (!confirm(`Delete "${j.title}"? This cannot be undone.`)) return;
-                        await fetch(`/api/jd?id=${j.id}`, { method: "DELETE" });
+                        const res = await fetch(`/api/jd?id=${j.id}`, { method: "DELETE" });
+                        if (!res.ok) { alert("Delete failed — please try again."); return; }
                         const next = jobList.filter(x => x.id !== j.id);
                         setJobList(next);
                         if (selectedJob === j.id) setSelectedJob(next[0]?.id ?? "");

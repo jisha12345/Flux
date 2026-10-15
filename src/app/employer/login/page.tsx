@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Check } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 
 async function signInWithGoogle() {
@@ -14,7 +13,7 @@ async function signInWithGoogle() {
   });
 }
 
-const SHIPROCKET_ORANGE = "#F26522";
+const SHIPROCKET_ORANGE = "#7C3AED";
 const MASTER_EMAIL = "jisha.bawa@shiprocket.com";
 
 const ShieldIcon = ({ className }: { className?: string }) => (
@@ -23,23 +22,63 @@ const ShieldIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+type AccessStatus = "idle" | "checking" | "admin" | "recruiter" | "unknown";
+
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(
-    searchParams.get("error") === "auth_callback_failed" ? "Login failed. Try again." : ""
-  );
+  const [error, setError] = useState(() => {
+    const e = searchParams.get("error");
+    if (e === "auth_callback_failed") return "Login failed. Try again.";
+    if (e === "access_denied") return "Your Google account doesn't have access. Ask jisha.bawa@shiprocket.com for an invite.";
+    return "";
+  });
   const [magicSent, setMagicSent] = useState(false);
+  const [accessStatus, setAccessStatus] = useState<AccessStatus>("idle");
 
-  const isMaster = email.trim().toLowerCase() === MASTER_EMAIL;
-  const hasTypedEmail = email.trim().length > 0;
+  // If already logged in, skip straight to dashboard
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) window.location.href = "/employer/dashboard";
+    });
+  }, []);
+
+  // Debounced access check on email change
+  useEffect(() => {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed.includes("@") || trimmed.length < 5) {
+      setAccessStatus("idle");
+      return;
+    }
+    // Master email check is client-side — instant, no API call
+    if (trimmed === MASTER_EMAIL) {
+      setAccessStatus("admin");
+      return;
+    }
+    setAccessStatus("checking");
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/check-access", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: trimmed }),
+        });
+        const data = await res.json();
+        if (data.allowed) setAccessStatus("recruiter");
+        else setAccessStatus("unknown");
+      } catch {
+        setAccessStatus("unknown");
+      }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [email]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    if (!isMaster) return;
+    if (accessStatus !== "admin") return;
     setLoading(true);
     setError("");
     const supabase = createClient();
@@ -51,12 +90,12 @@ function LoginForm() {
       setError(error.message);
       setLoading(false);
     } else {
-      router.push("/employer/dashboard");
+      window.location.href = "/employer/dashboard";
     }
   }
 
   async function handleMagicLink() {
-    if (!isMaster) return;
+    if (accessStatus !== "admin") return;
     setLoading(true);
     setError("");
     const supabase = createClient();
@@ -73,19 +112,47 @@ function LoginForm() {
     }
   }
 
+  async function handleRecruiterMagicLink() {
+    if (accessStatus !== "recruiter") return;
+    setLoading(true);
+    setError("");
+    const supabase = createClient();
+    // shouldCreateUser: false — only works for existing invited users
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+    } else {
+      setMagicSent(true);
+      setLoading(false);
+    }
+  }
+
   if (magicSent) {
     return (
-      <div className="space-y-4">
-        <span
-          className="w-9 h-9 rounded-full flex items-center justify-center"
-          style={{ background: "rgba(242,101,34,0.12)" }}
+      <div className="text-center space-y-4">
+        <div
+          className="w-12 h-12 rounded-full flex items-center justify-center mx-auto"
+          style={{ background: "rgba(124,58,237,0.1)" }}
         >
-          <Check className="w-4 h-4" strokeWidth={2.25} style={{ color: SHIPROCKET_ORANGE }} aria-hidden="true" />
-        </span>
-        <h2 className="text-2xl font-semibold tracking-tight text-gray-900">Check your inbox</h2>
-        <p className="text-[15px] leading-[1.6] text-gray-500">
-          A sign-in link is on its way to <strong className="font-medium text-gray-900">{email}</strong>. It works once.
+          <span className="text-xl" style={{ color: SHIPROCKET_ORANGE }}>✓</span>
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900">Check your inbox</h2>
+        <p className="text-gray-500 text-sm">
+          Magic link sent to <strong className="text-gray-900">{email}</strong>. Valid for one use.
         </p>
+        <button
+          onClick={() => { setMagicSent(false); setEmail(""); setAccessStatus("idle"); }}
+          className="text-xs text-gray-400 hover:text-gray-600 underline"
+        >
+          Use a different email
+        </button>
       </div>
     );
   }
@@ -97,38 +164,65 @@ function LoginForm() {
         <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: SHIPROCKET_ORANGE }}>
           <ShieldIcon className="w-4 h-4 fill-white" />
         </div>
-        <span className="font-semibold text-lg tracking-tight text-gray-900">Reqr</span>
+        <span className="font-bold text-xl text-gray-900">Reqr</span>
         <span className="text-xs text-gray-400">by Shiprocket</span>
       </Link>
 
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900 mb-1">Recruiter login</h1>
-        <p className="text-sm text-gray-500">Access is limited to the hiring team.</p>
+        <h1 className="text-2xl font-bold text-gray-900 mb-1">Recruiter login</h1>
+        <p className="text-sm text-gray-500">Internal access only.</p>
       </div>
+
+      {error && accessStatus === "idle" && (
+        <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>
+      )}
 
       <div>
         <label className="text-sm font-medium text-gray-700 block mb-1.5">Email</label>
         <input
           type="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#F26522] focus:ring-2"
-          style={{ "--tw-ring-color": "rgba(242,101,34,0.15)" } as React.CSSProperties}
-          onFocus={(e) => { e.currentTarget.style.borderColor = SHIPROCKET_ORANGE; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(242,101,34,0.12)"; }}
+          onChange={(e) => { setEmail(e.target.value); setError(""); }}
+          className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
+          onFocus={(e) => { e.currentTarget.style.borderColor = SHIPROCKET_ORANGE; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(124,58,237,0.12)"; }}
           onBlur={(e) => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.boxShadow = "none"; }}
           placeholder="your@shiprocket.com"
           autoFocus
         />
+        {accessStatus === "checking" && (
+          <p className="text-xs text-gray-400 mt-1.5">Checking access…</p>
+        )}
       </div>
 
-      {hasTypedEmail && !isMaster && (
-        <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+      {/* Unknown email */}
+      {accessStatus === "unknown" && (
+        <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800">
           Access is invite-only. Ask{" "}
-          <strong>jisha.bawa@shiprocket.com</strong> to send you a magic link.
+          <strong>{MASTER_EMAIL}</strong> to send you an invite.
         </div>
       )}
 
-      {isMaster && (
+      {/* Recruiter: magic link only */}
+      {accessStatus === "recruiter" && (
+        <div className="space-y-3">
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+          <button
+            type="button"
+            onClick={handleRecruiterMagicLink}
+            disabled={loading}
+            className="w-full py-2.5 text-white font-semibold rounded-xl text-sm disabled:opacity-40 hover:opacity-90 transition-all"
+            style={{ background: SHIPROCKET_ORANGE }}
+          >
+            {loading ? "Sending…" : "Send me a login link"}
+          </button>
+          <p className="text-xs text-gray-400 text-center">
+            A one-time link will be emailed to you.
+          </p>
+        </div>
+      )}
+
+      {/* Admin: password + magic link */}
+      {accessStatus === "admin" && (
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="text-sm font-medium text-gray-700 block mb-1.5">Password</label>
@@ -137,7 +231,7 @@ function LoginForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-900 focus:outline-none"
-              onFocus={(e) => { e.currentTarget.style.borderColor = SHIPROCKET_ORANGE; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(242,101,34,0.12)"; }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = SHIPROCKET_ORANGE; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(124,58,237,0.12)"; }}
               onBlur={(e) => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.boxShadow = "none"; }}
             />
           </div>
@@ -193,7 +287,7 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center px-6" style={{ background: "#F4F5F7" }}>
       <Suspense fallback={<div className="text-sm text-gray-400">Loading…</div>}>
-        <div className="w-full max-w-sm bg-white rounded-lg border border-gray-200 p-8">
+        <div className="w-full max-w-sm bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
           <LoginForm />
         </div>
       </Suspense>

@@ -172,7 +172,8 @@ export default function ProfileSourcer({ jobs: initialJobs }: { jobs: Job[] }) {
                     onClick={async e => {
                       e.stopPropagation();
                       if (!confirm(`Delete "${j.title}"? This cannot be undone.`)) return;
-                      await fetch(`/api/jd?id=${j.id}`, { method: "DELETE" });
+                      const res = await fetch(`/api/jd?id=${j.id}`, { method: "DELETE" });
+                      if (!res.ok) { alert("Delete failed — please try again."); return; }
                       const next = jobList.filter(x => x.id !== j.id);
                       setJobList(next);
                       if (selectedJobId === j.id) setSelectedJobId(next[0]?.id ?? "");

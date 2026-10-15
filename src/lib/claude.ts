@@ -32,6 +32,13 @@ Respond in JSON: { "score": number, "summary": string, "dimensions": { "depth": 
 
   const text = response.content[0].type === "text" ? response.content[0].text : "";
   const json = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? "{}");
+  // Clamp score and dimensions to 0-100
+  if (json.score != null) json.score = Math.min(100, Math.max(0, Math.round(json.score)));
+  if (json.dimensions) {
+    for (const k of Object.keys(json.dimensions)) {
+      json.dimensions[k] = Math.min(100, Math.max(0, Math.round(json.dimensions[k])));
+    }
+  }
   return json;
 }
 
@@ -52,6 +59,53 @@ Format as clean markdown.`,
   });
 
   return response.content[0].type === "text" ? response.content[0].text : "";
+}
+
+export interface InterviewFeedbackResult {
+  summary: string;
+  competency_scores: Record<string, number>;
+  strengths: string[];
+  concerns: string[];
+  recommendation: "Strong Hire" | "Hire" | "Hold" | "Reject";
+  overall_score: number;
+}
+
+export async function processInterviewFeedback(
+  rawNotes: string,
+  role: string,
+  round: string
+): Promise<InterviewFeedbackResult> {
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1024,
+    system: "You are an expert interview evaluator. Given raw bullet-point notes from an interviewer, extract structured evaluation data. Always return valid JSON matching the specified schema exactly.",
+    messages: [
+      {
+        role: "user",
+        content: `Analyze this ${round} interview feedback for a ${role} candidate:
+
+<interview_notes>
+${rawNotes}
+</interview_notes>
+
+Return a JSON object with exactly these fields:
+{
+  "summary": "2-3 sentence summary of the candidate's performance",
+  "competency_scores": { "Communication": <1-10>, "Technical Skills": <1-10>, "Problem Solving": <1-10>, "Culture Fit": <1-10>, "Leadership": <1-10> },
+  "strengths": ["strength 1", "strength 2", "strength 3"],
+  "concerns": ["concern 1"],
+  "recommendation": "Strong Hire" | "Hire" | "Hold" | "Reject",
+  "overall_score": <weighted average out of 10, one decimal>
+}
+
+Base the recommendation on: Strong Hire ≥8.5, Hire 7.0–8.4, Hold 5.5–6.9, Reject <5.5.
+Return ONLY the JSON object.`,
+      },
+    ],
+  });
+
+  const text = response.content[0].type === "text" ? response.content[0].text : "";
+  return JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? "{}") as InterviewFeedbackResult;
 }
 
 export async function generateAssessment(jobDescription: string): Promise<{ title: string; questions: Array<{ id: string; text: string; type: string }> }> {

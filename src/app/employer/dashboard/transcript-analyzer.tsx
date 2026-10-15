@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 
-const SHIPROCKET_ORANGE = "#F26522";
+const SHIPROCKET_ORANGE = "#7C3AED";
 
 interface Analysis {
   overall_score: number;
@@ -108,7 +108,7 @@ export default function TranscriptAnalyzer({ interviewId, candidateName, role, o
 [Candidate]: Sure, at my previous company I built…"
                 rows={16}
                 className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none resize-none leading-relaxed"
-                onFocus={e => { e.currentTarget.style.borderColor = SHIPROCKET_ORANGE; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(242,101,34,0.1)"; }}
+                onFocus={e => { e.currentTarget.style.borderColor = SHIPROCKET_ORANGE; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(124,58,237,0.1)"; }}
                 onBlur={e => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.boxShadow = "none"; }}
               />
               <button
