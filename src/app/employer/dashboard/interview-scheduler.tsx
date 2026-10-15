@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Calendar, Check, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 const SHIPROCKET_ORANGE = "#F26522";
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -47,9 +48,13 @@ function CalendarPicker({ value, onChange }: { value: string; onChange: (v: stri
   return (
     <div className="border border-gray-200 rounded-xl p-4 bg-white">
       <div className="flex items-center justify-between mb-3">
-        <button onClick={prevMonth} className="w-7 h-7 rounded-full hover:bg-gray-100 text-gray-500 flex items-center justify-center text-sm">‹</button>
+        <button onClick={prevMonth} aria-label="Previous month" className="w-7 h-7 rounded-md hover:bg-gray-100 text-gray-500 flex items-center justify-center">
+          <ChevronLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+        </button>
         <span className="text-sm font-semibold text-gray-900">{MONTHS[view.month]} {view.year}</span>
-        <button onClick={nextMonth} className="w-7 h-7 rounded-full hover:bg-gray-100 text-gray-500 flex items-center justify-center text-sm">›</button>
+        <button onClick={nextMonth} aria-label="Next month" className="w-7 h-7 rounded-md hover:bg-gray-100 text-gray-500 flex items-center justify-center">
+          <ChevronRight className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+        </button>
       </div>
       <div className="grid grid-cols-7 gap-0.5">
         {DAYS.map(d => (
@@ -61,7 +66,7 @@ function CalendarPicker({ value, onChange }: { value: string; onChange: (v: stri
             key={day}
             onClick={() => select(day)}
             disabled={isPast(day)}
-            className={`w-8 h-8 rounded-full text-xs mx-auto flex items-center justify-center transition-colors ${
+            className={`w-8 h-8 rounded-md text-xs mx-auto flex items-center justify-center transition-colors ${
               isSelected(day)
                 ? "text-white font-bold"
                 : isPast(day)
@@ -140,19 +145,21 @@ export default function InterviewScheduler({ candidateId, candidateName, round =
         if (data.meet_link) onScheduled(data.meet_link);
       }
     } catch (e) {
-      setScheduleError(e instanceof Error ? e.message : "Network error — please try again.");
+      setScheduleError(e instanceof Error ? e.message : "Network error. Please try again.");
     } finally {
       setLoading(false);
     }
   }
 
-  const roundLabel = round === 1 ? "Screening Call" : `Interview Round - ${round}`;
+  const roundLabel = round === 1 ? "Screening call" : `Interview round ${round}`;
 
   if (result) {
     return (
       <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4">
-        <div className="bg-white rounded-2xl p-8 max-w-sm w-full space-y-4 shadow-2xl text-center">
-          <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto text-2xl" style={{ background: "rgba(242,101,34,0.1)" }}>📅</div>
+        <div className="bg-white rounded-lg p-8 max-w-sm w-full space-y-4 shadow-lg text-center">
+          <div className="w-12 h-12 rounded-lg flex items-center justify-center mx-auto" style={{ background: "rgba(242,101,34,0.1)" }}>
+            <Calendar className="h-5 w-5" strokeWidth={1.75} style={{ color: SHIPROCKET_ORANGE }} aria-hidden="true" />
+          </div>
           <h3 className="font-bold text-gray-900">Interview scheduled</h3>
           <p className="text-sm text-gray-500">{roundLabel} with {interviewerName} for {candidateName}</p>
           {result.meet_link ? (
@@ -161,26 +168,28 @@ export default function InterviewScheduler({ candidateId, candidateName, round =
               <div className="flex gap-2">
                 <button
                   onClick={() => { navigator.clipboard.writeText(result.meet_link); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50 transition-all"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50 transition-all"
                 >
-                  {copied ? "Copied ✓" : "Copy link"}
+                  {copied
+                    ? <><Check className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />Copied</>
+                    : "Copy link"}
                 </button>
                 <a href={result.meet_link} target="_blank" rel="noopener noreferrer"
                   className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white text-center hover:opacity-90 transition-all"
                   style={{ background: SHIPROCKET_ORANGE }}>
-                  Open Meet →
+                  Open Meet
                 </a>
               </div>
-              <p className="text-xs text-gray-400">Calendar invites sent to {interviewerName}, HR &amp; all added attendees.</p>
+              <p className="text-xs text-gray-400">Calendar invites sent to {interviewerName}, HR and all added attendees.</p>
             </>
           ) : (
             <div className="rounded-xl bg-orange-50 border border-orange-200 p-3 text-xs text-orange-800 text-left space-y-1">
               {!result.calendar_connected ? (
-                <><p className="font-semibold">Google Calendar not connected.</p><a href="/api/calendar/auth" className="font-semibold underline block">Connect Google Calendar →</a></>
+                <><p className="font-semibold">Google Calendar is not connected.</p><a href="/api/calendar/auth" className="font-semibold underline block">Connect Google Calendar</a></>
               ) : result.calendar_error ? (
-                <><p className="font-semibold">Google Calendar error:</p><p>{result.calendar_error}</p><a href="/api/calendar/auth" className="font-semibold underline block mt-1">Re-connect Calendar →</a></>
+                <><p className="font-semibold">Google Calendar error:</p><p>{result.calendar_error}</p><a href="/api/calendar/auth" className="font-semibold underline block mt-1">Reconnect calendar</a></>
               ) : (
-                <p>Interview saved — no Meet link returned. Try re-connecting your calendar.</p>
+                <p>Interview saved, but no Meet link was returned. Try reconnecting your calendar.</p>
               )}
             </div>
           )}
@@ -192,24 +201,27 @@ export default function InterviewScheduler({ candidateId, candidateName, round =
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-5 my-8">
+      <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-lg space-y-5 my-8">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-bold text-gray-900">Schedule {roundLabel}</h3>
+            <h3 className="font-bold text-gray-900">Schedule {roundLabel.toLowerCase()}</h3>
             <p className="text-sm text-gray-500 mt-0.5">for <span className="font-medium">{candidateName}</span></p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:bg-gray-100 text-xl">×</button>
+          <button onClick={onClose} aria-label="Close" className="w-8 h-8 rounded-md flex items-center justify-center text-gray-400 hover:bg-gray-100">
+            <X className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+          </button>
         </div>
 
         {calendarConnected === false && (
           <div className="rounded-xl bg-orange-50 border border-orange-200 p-3 text-xs text-orange-800 flex items-center justify-between">
-            <span>Google Calendar not connected — no Meet link will be generated.</span>
-            <a href="/api/calendar/auth" className="font-semibold underline whitespace-nowrap ml-2">Connect →</a>
+            <span>Google Calendar is not connected. No Meet link will be generated.</span>
+            <a href="/api/calendar/auth" className="font-semibold underline whitespace-nowrap ml-2">Connect</a>
           </div>
         )}
         {calendarConnected === true && (
-          <div className="rounded-xl bg-green-50 border border-green-200 p-3 text-xs text-green-800">
-            ✓ Google Calendar connected — a Meet link will be auto-generated.
+          <div className="rounded-xl bg-green-50 border border-green-200 p-3 text-xs text-green-800 flex items-start gap-1.5">
+            <Check className="h-3.5 w-3.5 mt-px shrink-0" strokeWidth={1.75} aria-hidden="true" />
+            <span>Google Calendar is connected. A Meet link will be generated automatically.</span>
           </div>
         )}
 
@@ -230,7 +242,7 @@ export default function InterviewScheduler({ candidateId, candidateName, round =
           <div className="space-y-2">
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-50 border border-gray-200">
               <span className="text-xs text-gray-500 flex-1">hr@shiprocket.com</span>
-              <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">Always included</span>
+              <span className="text-xs text-gray-400">Always included</span>
             </div>
             {extraEmails.map((email, i) => (
               <input key={i} type="email" value={email} onChange={e => setExtraEmails(prev => prev.map((v, j) => j === i ? e.target.value : v))}
@@ -243,7 +255,7 @@ export default function InterviewScheduler({ candidateId, candidateName, round =
         {/* Calendar date picker */}
         <div>
           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-1.5">
-            Date {date && <span className="text-orange-600 normal-case font-normal">— {new Date(date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</span>}
+            Date {date && <span className="ml-1 text-orange-600 normal-case font-normal">{new Date(date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}</span>}
           </label>
           <CalendarPicker value={date} onChange={setDate} />
         </div>
@@ -275,7 +287,7 @@ export default function InterviewScheduler({ candidateId, candidateName, round =
         <button onClick={schedule} disabled={loading || !date || !interviewerName}
           className="w-full py-3 text-white font-semibold rounded-xl text-sm disabled:opacity-40 hover:opacity-90 transition-all"
           style={{ background: SHIPROCKET_ORANGE }}>
-          {loading ? "Scheduling…" : "Schedule & create Meet link →"}
+          {loading ? "Scheduling…" : "Schedule and create Meet link"}
         </button>
       </div>
     </div>

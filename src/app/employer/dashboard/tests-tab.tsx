@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Check, ClipboardList, ClipboardPaste, Loader2, Upload } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
 const SHIPROCKET_ORANGE = "#F26522";
@@ -92,10 +93,12 @@ export default function TestsTab({ jobs }: { jobs: Job[] }) {
     <div className="space-y-4">
       <div className="bg-white rounded-xl border shadow-sm p-5 flex items-center justify-between">
         <div>
-          <h3 className="font-semibold text-gray-900 mb-1">Screening Tests</h3>
+          <h3 className="font-semibold text-gray-900 mb-1">Screening tests</h3>
           <p className="text-sm text-gray-400">Generate a JD-matched, 10-minute timed test per role. Share the link with candidates.</p>
         </div>
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0" style={{ background: "rgba(242,101,34,0.1)" }}>📋</div>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(242,101,34,0.1)" }}>
+          <ClipboardList className="h-5 w-5" strokeWidth={1.75} style={{ color: SHIPROCKET_ORANGE }} aria-hidden="true" />
+        </div>
       </div>
 
       {jobs.length === 0 ? (
@@ -106,7 +109,9 @@ export default function TestsTab({ jobs }: { jobs: Job[] }) {
               Generate with AI
             </Link>
             <label className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-600 font-medium rounded-xl hover:border-gray-300 hover:bg-gray-50 text-sm cursor-pointer">
-              <span className="text-base leading-none">+</span>
+              {jdUploading
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} aria-hidden="true" />
+                : <Upload className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />}
               <span>{jdUploading ? "Uploading…" : "Upload JD"}</span>
               <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt" className="hidden" onChange={handleJDUpload} disabled={jdUploading} />
             </label>
@@ -114,7 +119,7 @@ export default function TestsTab({ jobs }: { jobs: Job[] }) {
               onClick={() => setJdMode(jdMode === "paste" ? null : "paste")}
               className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-600 font-medium rounded-xl hover:border-gray-300 hover:bg-gray-50 text-sm"
             >
-              <span className="text-base leading-none">+</span>
+              <ClipboardPaste className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
               <span>Paste JD</span>
             </button>
           </div>
@@ -160,7 +165,12 @@ export default function TestsTab({ jobs }: { jobs: Job[] }) {
                     </span>
                     10 min · 6 questions · anti-cheat enabled
                   </p>
-                  {test && <p className="text-xs text-green-600 mt-1.5 font-medium">✓ Test generated — ready to share</p>}
+                  {test && (
+                    <p className="flex items-center gap-1.5 text-xs text-green-600 mt-1.5 font-medium">
+                      <Check className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                      Test generated, ready to share
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="px-5 pb-5">
@@ -168,9 +178,11 @@ export default function TestsTab({ jobs }: { jobs: Job[] }) {
                   <div className="flex gap-2">
                     <button
                       onClick={() => copyLink(test.id)}
-                      className="flex-1 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
                     >
-                      {copied === test.id ? "Copied ✓" : "Copy candidate link"}
+                      {copied === test.id
+                        ? <><Check className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />Copied</>
+                        : "Copy candidate link"}
                     </button>
                     <Link
                       href={`/assessment/${test.id}`}
@@ -178,7 +190,7 @@ export default function TestsTab({ jobs }: { jobs: Job[] }) {
                       className="flex-1 py-2 text-white text-sm font-semibold rounded-xl hover:opacity-90 transition-all text-center"
                       style={{ background: SHIPROCKET_ORANGE }}
                     >
-                      Preview test →
+                      Preview test
                     </Link>
                   </div>
                 ) : (
@@ -189,9 +201,9 @@ export default function TestsTab({ jobs }: { jobs: Job[] }) {
                     style={{ background: SHIPROCKET_ORANGE }}
                   >
                     {generating === job.id ? (
-                      <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Generating test…</>
+                      <><Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} aria-hidden="true" />Generating test…</>
                     ) : (
-                      "Generate screening test →"
+                      "Generate screening test"
                     )}
                   </button>
                 )}

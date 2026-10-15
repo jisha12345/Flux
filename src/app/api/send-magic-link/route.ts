@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       type: "magiclink",
       email,
       options: {
-        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "https://flux-swart-five.vercel.app"}/auth/callback`,
+        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/auth/callback`,
       },
     });
 

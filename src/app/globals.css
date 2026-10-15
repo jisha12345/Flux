@@ -25,8 +25,8 @@
     --ring: 25 89% 54%;
     --radius: 0.5rem;
 
-    --brand-500: #735ae5;
-    --accent-color: #ff6900;
+    /* One accent, the Shiprocket orange already in --primary/--accent above. */
+    --accent-color: #f26522;
   }
 
   .dark {
@@ -61,9 +61,3 @@
   }
 }
 
-.gradient-text {
-  background: linear-gradient(135deg, var(--brand-500) 0%, var(--accent-color) 100%);
-  -webkit-text-fill-color: transparent;
-  -webkit-background-clip: text;
-  background-clip: text;
-}

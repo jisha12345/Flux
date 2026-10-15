@@ -31,7 +31,7 @@ export async function sendEmail({
 export async function sendApplicationConfirmation(email: string, name: string, jobTitle: string) {
   await sendEmail({
     to: email,
-    subject: `Application received — ${jobTitle}`,
-    html: `<p>Hi ${name},</p><p>We've received your application for <strong>${jobTitle}</strong> via Reqr. Our AI will review it and you'll hear back soon.</p><p>— Reqr by Shiprocket</p>`,
+    subject: `Application received: ${jobTitle}`,
+    html: `<p>Hi ${name},</p><p>We&rsquo;ve received your application for <strong>${jobTitle}</strong>. Your answers are being scored against the role, and the team will be in touch.</p><p>Reqr by Shiprocket</p>`,
   });
 }

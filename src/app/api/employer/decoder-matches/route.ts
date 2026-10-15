@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("candidates")
-    .select("id, name, email, ai_score, ai_dimensions, status")
+    .select("id, name:full_name, email, ai_score, ai_dimensions, status")
     .eq("job_id", jobId ?? "")
     .not("ai_score", "is", null)
     .order("ai_score", { ascending: false });

@@ -12,7 +12,7 @@ ${jobContext}
 CANDIDATE CV:
 ${cvText}
 
-Evaluate this candidate and respond with ONLY a JSON object — no preamble:
+Evaluate this candidate and respond with ONLY a JSON object, no preamble:
 {
   "name": "candidate full name",
   "email": "email if found or null",

@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Reqr
 
-## Getting Started
+AI-powered tech recruiting platform by Shiprocket. Recruiters source and screen
+candidates; candidates apply, take assessments, and sit **AI voice interviews**
+that produce a full written assessment report.
 
-First, run the development server:
+## Running locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # app       → http://localhost:3000
+npm run gateway    # voice gateway → :8787   (separate terminal)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The gateway is only needed for AI interviews. It is a **separate Node service**
+(`gateway/`) with its own dependencies, because the voice pipeline needs a
+long-lived WebSocket.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Create `.env.local` with the Supabase keys, `ANTHROPIC_API_KEY`,
+`SARVAM_API_KEY`, and `NEXT_PUBLIC_INTERVIEW_GATEWAY_URL=http://localhost:8787`.
+To work entirely offline, `supabase start` then apply
+`supabase/local-bootstrap.sql` and `supabase/seed-demo-interviews.sql`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Deployed
 
-## Learn More
+**https://jisha.ai-rocket-experiments.com** — on the shared POC EC2 box, not
+Vercel. Push to the CodeCommit `main` remote to deploy, or run
+`./scripts/deploy-poc.sh` for a manual push from working state.
 
-To learn more about Next.js, take a look at the following resources:
+## Docs
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| | |
+|---|---|
+| [`docs/ai-interviews.md`](docs/ai-interviews.md) | the voice interview platform: STT→LLM→TTS pipeline, contracts, models |
+| [`docs/database.md`](docs/database.md) | Supabase access, migrations, schema drift, the RLS traps |
+| [`docs/deployment.md`](docs/deployment.md) | hosting, subdomain routing, CI/CD, secrets |
+| [`AGENTS.md`](AGENTS.md) | conventions and hard-won gotchas — read before changing code |

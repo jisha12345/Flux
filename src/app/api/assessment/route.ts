@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase";
+import { createServerSupabaseClient, createServiceClient } from "@/lib/supabase";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -20,7 +20,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { assessment_id, candidate_id, answers, integrity } = await request.json();
-    const supabase = await createServerSupabaseClient();
+    // Service role: candidates submit anonymously, and reading the row back
+    // for its id needs a SELECT that anon must not have on submissions.
+    const supabase = createServiceClient();
 
     const integrityScore = integrity
       ? Math.max(0, 100 - (integrity.tab_switches || 0) * 15 - (integrity.focus_losses || 0) * 5 - (integrity.fullscreen_warnings || 0) * 10)

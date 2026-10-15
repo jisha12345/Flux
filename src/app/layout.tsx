@@ -6,8 +6,9 @@ const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-int
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], display: "swap", variable: "--font-jakarta", weight: ["400", "500", "600", "700", "800"] });
 
 export const metadata: Metadata = {
-  title: "Reqr — Hiring for the AI era",
-  description: "Reqr by Shiprocket — AI-powered tech recruiting platform",
+  title: "Reqr by Shiprocket",
+  description:
+    "Screening for engineering roles: applications, voice interviews, and written assessments.",
 };
 
 export default function RootLayout({

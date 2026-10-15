@@ -1,206 +1,258 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import {
+  CalendarClock,
+  ClipboardList,
+  FileText,
+  ListFilter,
+  type LucideIcon,
+} from "lucide-react";
 
-const SHIPROCKET_ORANGE = "#F26522";
-const DARK_NAVY = "#1A2340";
+const ACCENT = "#F26522";
 
 const ShieldIcon = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" className={className}>
+  <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
     <path d="M12 2L4 6v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z" />
   </svg>
 );
 
-function AnimatedSection({ children, className }: { children: React.ReactNode; className?: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          el.style.transition = "opacity 0.6s ease, transform 0.6s ease";
-          el.style.opacity = "1";
-          el.style.transform = "translateY(0)";
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.1 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+/** Facts, not claims: each number is something the product actually does. */
+const FACTS = [
+  { value: "14", label: "questions in the application" },
+  { value: "8", label: "competencies scored per interview" },
+  { value: "6", label: "sections in a voice interview" },
+];
 
-  return (
-    <div ref={ref} style={{ opacity: 0, transform: "translateY(20px)" }} className={className}>
-      {children}
-    </div>
-  );
-}
+const STAGES = [
+  {
+    step: "01",
+    title: "Write the role",
+    body: "Describe the role in the builder and edit the generated description, or paste one you already have.",
+  },
+  {
+    step: "02",
+    title: "Collect applications",
+    body: "Candidates answer role-specific questions. Each submission is scored against the requirements for that role.",
+  },
+  {
+    step: "03",
+    title: "Run the first interview",
+    body: "Candidates open a link and talk to an AI interviewer. Sections and follow-up questions come from the job description and their CV.",
+  },
+  {
+    step: "04",
+    title: "Review and decide",
+    body: "Every interview produces a written assessment with scores, evidence from the transcript, and areas to probe in the next round.",
+  },
+];
+
+const CAPABILITIES: { icon: LucideIcon; title: string; body: string }[] = [
+  {
+    icon: FileText,
+    title: "Job descriptions",
+    body: "Turn a short brief into a structured description with responsibilities, requirements, and skills you can edit before publishing.",
+  },
+  {
+    icon: ListFilter,
+    title: "Candidate database",
+    body: "Every applicant is stored and searchable by skill, score, notice period, location, and current compensation.",
+  },
+  {
+    icon: ClipboardList,
+    title: "Screening tests",
+    body: "Generate a timed test from the job description. Submissions are scored and flagged for tab switching and lost focus.",
+  },
+  {
+    icon: CalendarClock,
+    title: "Interview scheduling",
+    body: "Book follow-up rounds against your Google Calendar, then attach the transcript for analysis when the call ends.",
+  },
+];
 
 export default function Home() {
   return (
-    <div className="min-h-screen overflow-x-hidden" style={{ background: "#F4F5F7", color: "#1C1C2E" }}>
-      {/* Nav */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: SHIPROCKET_ORANGE }}>
-              <ShieldIcon className="w-4 h-4 fill-white" />
-            </div>
-            <span className="font-bold text-xl text-gray-900">Reqr</span>
-            <span className="text-xs text-gray-400 hidden sm:block">by Shiprocket</span>
-          </Link>
-          <div className="hidden sm:flex items-center gap-3">
-            <Link href="/apply" className="px-5 py-2 text-white text-sm font-semibold rounded-lg transition-all" style={{ background: SHIPROCKET_ORANGE }}>
-              Apply now
-            </Link>
-            <Link href="/employer/login" className="px-5 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:border-gray-300 hover:bg-gray-50 transition-all">
-              Recruiter login
-            </Link>
-          </div>
-        </div>
-      </nav>
-
-      {/* Hero */}
-      <section className="pt-36 pb-24 px-4 sm:px-6 max-w-6xl mx-auto text-center">
-        <AnimatedSection className="space-y-6">
-          <div
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium"
-            style={{ borderColor: "rgba(242,101,34,0.3)", background: "rgba(242,101,34,0.08)", color: SHIPROCKET_ORANGE }}
-          >
-            <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: SHIPROCKET_ORANGE }} />
-            AI-powered hiring platform
-          </div>
-          <h1 className="text-5xl sm:text-7xl font-bold leading-[1.05] tracking-tight text-gray-900">
-            <span className="gradient-text">Hiring for</span>
-            <br />
-            <span>the AI era.</span>
-          </h1>
-          <p className="text-gray-500 text-lg sm:text-xl max-w-xl mx-auto leading-relaxed">
-            Show us what you&apos;ve built.
-            <br className="hidden sm:block" />
-            <span className="text-gray-900 font-medium">We&apos;ll take it from there.</span>
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-            <Link
-              href="/apply"
-              className="px-8 py-3.5 text-white font-semibold rounded-xl transition-all text-sm shadow-lg"
-              style={{ background: SHIPROCKET_ORANGE, boxShadow: "0 4px 20px rgba(242,101,34,0.3)" }}
+    <div className="min-h-screen bg-white text-[#14161a]">
+      <header className="border-b border-[#e7e9ec]">
+        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-5">
+          <Link href="/" className="flex items-center gap-2">
+            <span
+              className="flex h-6 w-6 items-center justify-center rounded"
+              style={{ background: ACCENT }}
             >
-              Apply in 5 minutes →
+              <ShieldIcon className="h-3.5 w-3.5 fill-white" />
+            </span>
+            <span className="text-[15px] font-semibold tracking-tight">Reqr</span>
+            <span className="hidden text-[13px] text-[#6b7280] sm:inline">by Shiprocket</span>
+          </Link>
+          <nav className="flex items-center gap-5 text-[14px]">
+            <Link
+              href="/tech"
+              className="text-[#4b5563] transition-colors hover:text-[#14161a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F26522] focus-visible:ring-offset-2"
+            >
+              Open roles
             </Link>
             <Link
               href="/employer/login"
-              className="px-8 py-3.5 bg-white border border-gray-200 text-gray-700 font-medium rounded-xl text-sm hover:border-gray-300 transition-all"
+              className="text-[#4b5563] transition-colors hover:text-[#14161a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F26522] focus-visible:ring-offset-2"
             >
-              I&apos;m a recruiter
+              Recruiter login
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-5xl px-5">
+        {/* Hero */}
+        <section className="border-b border-[#e7e9ec] py-16 sm:py-20">
+          <h1 className="max-w-3xl text-[34px] font-semibold leading-[1.12] tracking-tight sm:text-[46px]">
+            Screening for engineering roles, from application to assessment.
+          </h1>
+          <p className="mt-5 max-w-xl text-[17px] leading-[1.6] text-[#4b5563]">
+            Reqr runs the first round of hiring at Shiprocket. Candidates apply
+            with role-specific answers, sit a voice interview with an AI
+            interviewer, and arrive at your review with a written assessment.
+          </p>
+
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Link
+              href="/apply"
+              className="rounded-md px-5 py-2.5 text-[14px] font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F26522] focus-visible:ring-offset-2"
+              style={{ background: ACCENT }}
+            >
+              Apply for a role
+            </Link>
+            <Link
+              href="/tech"
+              className="rounded-md border border-[#d5d8dd] px-5 py-2.5 text-[14px] font-medium text-[#14161a] transition-colors hover:border-[#9ca3af] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F26522] focus-visible:ring-offset-2"
+            >
+              See open roles
             </Link>
           </div>
-        </AnimatedSection>
 
-        <AnimatedSection className="mt-16 grid grid-cols-3 gap-4 sm:gap-8 max-w-lg mx-auto">
-          {[
-            { value: "5 min", label: "to apply" },
-            { value: "AI", label: "scores every CV" },
-            { value: "0", label: "fluff questions" },
-          ].map((s) => (
-            <div key={s.label} className="space-y-1">
-              <p className="text-2xl sm:text-3xl font-bold gradient-text">{s.value}</p>
-              <p className="text-gray-400 text-xs sm:text-sm">{s.label}</p>
+          <dl className="mt-12 flex flex-wrap gap-x-12 gap-y-5">
+            {FACTS.map((f) => (
+              <div key={f.label}>
+                <dt className="sr-only">{f.label}</dt>
+                <dd>
+                  <span className="text-[26px] font-semibold tabular-nums">{f.value}</span>
+                  <span className="ml-2 text-[14px] text-[#6b7280]">{f.label}</span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        {/* Pipeline */}
+        <section className="border-b border-[#e7e9ec] py-16">
+          <h2 className="text-[22px] font-semibold tracking-tight">
+            How a role moves through Reqr
+          </h2>
+          <ol className="mt-8">
+            {STAGES.map((s, i) => (
+              <li
+                key={s.step}
+                className={`grid gap-x-6 gap-y-1.5 py-5 sm:grid-cols-[3rem_14rem_1fr] ${
+                  i > 0 ? "border-t border-[#eef0f2]" : ""
+                }`}
+              >
+                <span className="text-[13px] tabular-nums text-[#9ca3af]">{s.step}</span>
+                <h3 className="text-[15px] font-medium">{s.title}</h3>
+                <p className="max-w-2xl text-[15px] leading-[1.6] text-[#4b5563]">{s.body}</p>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        {/* Capabilities, with the interview given the most weight */}
+        <section className="border-b border-[#e7e9ec] py-16">
+          <h2 className="text-[22px] font-semibold tracking-tight">
+            Manage the hiring process from role creation to offer
+          </h2>
+
+          <article className="mt-8 grid gap-x-12 gap-y-8 bg-[#f7f8f9] p-7 sm:p-9 lg:grid-cols-[1.4fr_1fr]">
+            <div>
+              <p className="text-[12px] font-medium uppercase tracking-wider text-[#6b7280]">
+                First-round interview
+              </p>
+              <h3 className="mt-2.5 text-[24px] font-semibold leading-snug tracking-tight sm:text-[28px]">
+                Every interview is planned from the job description and the CV
+              </h3>
+              <p className="mt-4 text-[15px] leading-[1.65] text-[#4b5563]">
+                Before the call, Reqr reads both and plans six sections with
+                specific areas to probe. During the call the interviewer follows
+                the candidate&rsquo;s answers, asks follow-up questions, and
+                keeps to the booked duration.
+              </p>
+              <p className="mt-3 text-[15px] leading-[1.65] text-[#4b5563]">
+                Afterwards you get a written assessment: an overall score, eight
+                competencies rated with evidence quoted from the transcript,
+                strengths, open questions, and what the next interviewer should
+                cover.
+              </p>
             </div>
-          ))}
-        </AnimatedSection>
-      </section>
 
-      {/* How it works */}
-      <section className="py-20 px-4 sm:px-6 max-w-6xl mx-auto">
-        <AnimatedSection className="text-center mb-12">
-          <p className="text-gray-400 text-sm uppercase tracking-widest mb-3">How it works</p>
-          <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">Three steps. No fluff.</h2>
-        </AnimatedSection>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {[
-            { n: "01", title: "Apply in minutes", desc: "Answer real questions about what you've built. No resume spam." },
-            { n: "02", title: "Get scored by AI", desc: "Claude evaluates your AI depth, clarity, and ambition in real-time." },
-            { n: "03", title: "Hear back fast", desc: "Recruiters see your score and profile. No black hole." },
-          ].map((s) => (
-            <AnimatedSection key={s.n} className="bg-white rounded-2xl p-6 space-y-3 border border-gray-200 hover:shadow-md transition-shadow">
-              <span className="text-4xl font-bold gradient-text">{s.n}</span>
-              <h3 className="text-gray-900 font-semibold text-lg">{s.title}</h3>
-              <p className="text-gray-500 text-sm leading-relaxed">{s.desc}</p>
-            </AnimatedSection>
-          ))}
-        </div>
-      </section>
+            <dl className="space-y-4 self-center text-[14px] lg:border-l lg:border-[#e2e5e8] lg:pl-10">
+              {[
+                { k: "Languages", v: "English and Hindi" },
+                { k: "If the call drops", v: "Resumes at the last question" },
+                { k: "Record kept", v: "Recording and transcript, both sides" },
+                { k: "Identity", v: "Photo captured before the interview starts" },
+              ].map(({ k, v }) => (
+                <div key={k}>
+                  <dt className="text-[#6b7280]">{k}</dt>
+                  <dd className="mt-0.5 text-[#14161a]">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </article>
 
-      {/* Features */}
-      <section className="py-20 px-4 sm:px-6 max-w-6xl mx-auto">
-        <AnimatedSection className="text-center mb-12">
-          <p className="text-gray-400 text-sm uppercase tracking-widest mb-3">Features</p>
-          <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">Everything in one place.</h2>
-        </AnimatedSection>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[
-            { icon: "⚡", title: "AI-scored applications", desc: "Every candidate is scored across AI depth, communication, and ambition. No more gut-feel shortlisting." },
-            { icon: "🧠", title: "Built for AI-native talent", desc: "Questions that reveal how candidates actually use AI — not just if they've heard of ChatGPT." },
-            { icon: "🎯", title: "AI-generated JDs", desc: "Describe the role in plain English. Reqr writes a compelling, structured JD in seconds." },
-            { icon: "🔍", title: "Candidate database", desc: "Every applicant is stored, scored, and searchable. Filter by CTC, notice, WFH, score, and more." },
-            { icon: "📱", title: "Apply in minutes", desc: "Conversational form. One question at a time. No uploads required to start." },
-            { icon: "🚀", title: "Pipeline management", desc: "Move candidates from Applied → Shortlisted → Interview → Offer without leaving the app." },
-          ].map((f) => (
-            <AnimatedSection key={f.title} className="bg-white rounded-2xl p-6 space-y-3 border border-gray-200 hover:shadow-md transition-shadow">
-              <span className="text-2xl">{f.icon}</span>
-              <h3 className="text-gray-900 font-semibold">{f.title}</h3>
-              <p className="text-gray-500 text-sm leading-relaxed">{f.desc}</p>
-            </AnimatedSection>
-          ))}
-        </div>
-      </section>
+          <div className="mt-10 grid gap-x-10 gap-y-8 sm:grid-cols-2">
+            {CAPABILITIES.map(({ icon: Icon, title, body }) => (
+              <div key={title}>
+                <div className="flex items-center gap-2">
+                  <Icon className="h-4 w-4 text-[#6b7280]" strokeWidth={1.75} aria-hidden="true" />
+                  <h3 className="text-[15px] font-medium">{title}</h3>
+                </div>
+                <p className="mt-2 text-[15px] leading-[1.6] text-[#4b5563]">{body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
 
-      {/* CTA */}
-      <section className="py-20 px-4 sm:px-6 max-w-6xl mx-auto">
-        <AnimatedSection>
-          <div
-            className="rounded-3xl p-10 sm:p-16 text-center space-y-6 relative overflow-hidden text-white"
-            style={{ background: DARK_NAVY }}
-          >
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{ background: "radial-gradient(circle at 70% 50%, rgba(242,101,34,0.15) 0%, transparent 60%)" }}
-            />
-            <h2 className="text-3xl sm:text-5xl font-bold relative z-10">
-              Ready to find your next<br />
-              <span className="gradient-text">great hire?</span>
-            </h2>
-            <p className="text-white/60 max-w-md mx-auto relative z-10">
-              Whether you&apos;re a candidate or a recruiter — Reqr has you covered.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 justify-center relative z-10">
-              <Link href="/apply" className="px-8 py-3.5 text-white font-semibold rounded-xl text-sm transition-all" style={{ background: SHIPROCKET_ORANGE }}>
-                Apply now →
+        {/* Close */}
+        <section className="py-16">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-[22px] font-semibold tracking-tight">
+                Start an application or open the dashboard
+              </h2>
+              <p className="mt-2 max-w-md text-[15px] leading-[1.6] text-[#4b5563]">
+                Candidates apply in one sitting. Recruiters sign in to post
+                roles and review completed interviews.
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-3">
+              <Link
+                href="/apply"
+                className="rounded-md px-5 py-2.5 text-[14px] font-medium text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F26522] focus-visible:ring-offset-2"
+                style={{ background: ACCENT }}
+              >
+                Apply for a role
               </Link>
-              <Link href="/employer/login" className="px-8 py-3.5 border border-white/20 text-white/80 font-medium rounded-xl text-sm hover:border-white/40 transition-all">
-                Post a job
+              <Link
+                href="/employer/login"
+                className="rounded-md border border-[#d5d8dd] px-5 py-2.5 text-[14px] font-medium text-[#14161a] transition-colors hover:border-[#9ca3af] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F26522] focus-visible:ring-offset-2"
+              >
+                Recruiter login
               </Link>
             </div>
           </div>
-        </AnimatedSection>
-      </section>
+        </section>
+      </main>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-200 bg-white py-8 px-4 sm:px-6">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded flex items-center justify-center" style={{ background: SHIPROCKET_ORANGE }}>
-              <ShieldIcon className="w-3.5 h-3.5 fill-white" />
-            </div>
-            <span className="text-gray-500 text-sm">
-              Powered by <span className="text-gray-700 font-medium">Shiprocket</span>
-            </span>
-          </div>
-          <p className="text-gray-400 text-xs">Internal tool — confidential</p>
+      <footer className="border-t border-[#e7e9ec]">
+        <div className="mx-auto flex max-w-5xl flex-col gap-2 px-5 py-7 text-[13px] text-[#6b7280] sm:flex-row sm:items-center sm:justify-between">
+          <span>Powered by Shiprocket</span>
+          <span>Internal tool. Confidential.</span>
         </div>
       </footer>
     </div>

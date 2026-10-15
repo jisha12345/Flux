@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { Check } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import type { User } from "@supabase/supabase-js";
 
@@ -19,7 +20,7 @@ const QUESTIONS = [
   { id: "phone", label: "What's your phone number?", optional: true },
   { id: "skills", label: "List your top 5 technical skills." },
   { id: "biggest_project", label: "Tell us about the most complex technical project you've shipped. What was your role, what made it hard, what did you learn?" },
-  { id: "ai_usage", label: "How do you actually use AI in your day-to-day work? Be specific — tools, workflows, what you've built or automated." },
+  { id: "ai_usage", label: "How do you use AI in your day-to-day work? Name the tools, the workflows, and anything you have built or automated." },
   { id: "proud_of", label: "What's a piece of code or system design you're genuinely proud of? Walk us through it." },
   { id: "hard_problem", label: "Describe a technically hard problem you solved recently. What made it hard? How did you approach it?" },
   { id: "learning", label: "What are you learning right now, and why?" },
@@ -29,27 +30,6 @@ const QUESTIONS = [
   { id: "why_now", label: "Why are you looking to move now?" },
   { id: "anything_else", label: "Anything else you want us to know?", optional: true },
 ];
-
-function AnimatedStep({ children, visible }: { children: React.ReactNode; visible: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (visible) {
-      el.style.transition = "opacity 0.4s ease, transform 0.4s ease";
-      el.style.opacity = "1";
-      el.style.transform = "translateX(0)";
-    } else {
-      el.style.opacity = "0";
-      el.style.transform = "translateX(40px)";
-    }
-  }, [visible]);
-  return (
-    <div ref={ref} style={{ opacity: 0, transform: "translateX(40px)" }}>
-      {children}
-    </div>
-  );
-}
 
 export default function ApplyPage() {
   const [user, setUser] = useState<User | null>(null);
@@ -109,20 +89,23 @@ export default function ApplyPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-4" style={{ background: "#F4F5F7" }}>
-        <div className="bg-white rounded-3xl p-10 shadow-sm border border-gray-100 max-w-sm w-full text-center space-y-6">
-          <div className="flex justify-center">
-            <div className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: SHIPROCKET_ORANGE }}>
-              <ShieldIcon className="w-7 h-7 fill-white" />
-            </div>
-          </div>
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-white">
+        <div className="max-w-sm w-full space-y-6">
+          <Link href="/" className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded flex items-center justify-center" style={{ background: SHIPROCKET_ORANGE }}>
+              <ShieldIcon className="w-3.5 h-3.5 fill-white" />
+            </span>
+            <span className="text-[15px] font-semibold tracking-tight text-[#14161a]">Reqr</span>
+          </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Apply to Reqr</h1>
-            <p className="text-gray-400 text-sm">Sign in with Google to start. We&apos;ll prefill your name and email.</p>
+            <h1 className="text-2xl font-semibold tracking-tight text-[#14161a]">Apply for a role</h1>
+            <p className="mt-2 text-[15px] leading-[1.6] text-[#4b5563]">
+              Sign in with Google so your name and email are filled in for you.
+            </p>
           </div>
           <button
             onClick={signInWithGoogle}
-            className="w-full flex items-center justify-center gap-3 px-6 py-3.5 bg-white border-2 border-gray-200 text-gray-700 font-semibold rounded-2xl hover:border-gray-300 hover:bg-gray-50 transition-all text-sm"
+            className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-white border border-[#d5d8dd] text-[#14161a] font-medium rounded-md hover:border-[#9ca3af] transition-colors text-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F26522] focus-visible:ring-offset-2"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -132,7 +115,9 @@ export default function ApplyPage() {
             </svg>
             Sign in with Google
           </button>
-          <p className="text-xs text-gray-300">14 questions · ~5 minutes · AI reviews instantly</p>
+          <p className="text-[13px] text-[#6b7280]">
+            14 questions, around 5 minutes. Three are optional.
+          </p>
         </div>
       </div>
     );
@@ -140,108 +125,109 @@ export default function ApplyPage() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "#F4F5F7" }}>
-        <div className="bg-white rounded-3xl p-10 shadow-sm border border-gray-100 max-w-sm w-full text-center space-y-4">
-          <div
-            className="w-14 h-14 rounded-full flex items-center justify-center mx-auto text-2xl"
-            style={{ background: "rgba(242,101,34,0.1)" }}
+      <div className="min-h-screen flex items-center justify-center px-4 bg-white">
+        <div className="max-w-sm w-full space-y-4">
+          <span
+            className="w-9 h-9 rounded-full flex items-center justify-center"
+            style={{ background: "rgba(242,101,34,0.12)" }}
           >
-            ✓
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">You&apos;re in the stack.</h1>
-          <p className="text-gray-400 text-sm">Our AI is reviewing your answers now. You&apos;ll hear back within 48 hours.</p>
+            <Check className="w-4 h-4" strokeWidth={2.25} style={{ color: SHIPROCKET_ORANGE }} aria-hidden="true" />
+          </span>
+          <h1 className="text-2xl font-semibold tracking-tight text-[#14161a]">Application received</h1>
+          <p className="text-[15px] leading-[1.6] text-[#4b5563]">
+            Your answers are being scored against the role now. The team will be
+            in touch within 48 hours.
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: "#F4F5F7" }}>
-      {/* Nav */}
-      <div className="bg-white border-b border-gray-200 px-4 sm:px-8 py-4 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: SHIPROCKET_ORANGE }}>
-            <ShieldIcon className="w-4 h-4 fill-white" />
-          </div>
-          <span className="font-bold text-lg text-gray-900">Reqr</span>
+    <div className="min-h-screen flex flex-col bg-white">
+      <div className="border-b border-[#e7e9ec] px-5 sm:px-8 h-14 flex items-center justify-between">
+        <Link href="/" className="flex items-center gap-2">
+          <span className="w-6 h-6 rounded flex items-center justify-center" style={{ background: SHIPROCKET_ORANGE }}>
+            <ShieldIcon className="w-3.5 h-3.5 fill-white" />
+          </span>
+          <span className="text-[15px] font-semibold tracking-tight text-[#14161a]">Reqr</span>
         </Link>
-        <div className="flex items-center gap-3">
-          <span className="text-gray-400 text-sm hidden sm:block">{step + 1} of {totalSteps}</span>
+        <div className="flex items-center gap-4 text-[13px] text-[#6b7280]">
+          <span className="tabular-nums">Question {step + 1} of {totalSteps}</span>
           {user.user_metadata?.full_name && (
-            <span className="text-xs text-gray-400 hidden sm:block">{user.user_metadata.full_name}</span>
+            <span className="hidden sm:block">{user.user_metadata.full_name}</span>
           )}
         </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="bg-white border-b border-gray-100 px-4 sm:px-8">
-        <div className="h-1 rounded-full overflow-hidden" style={{ background: "#f3f4f6" }}>
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{ background: SHIPROCKET_ORANGE, width: `${progress}%` }}
-          />
-        </div>
+      <div
+        className="h-0.5 bg-[#eef0f2]"
+        role="progressbar"
+        aria-valuenow={step + 1}
+        aria-valuemin={1}
+        aria-valuemax={totalSteps}
+        aria-label="Application progress"
+      >
+        <div
+          className="h-full transition-[width] duration-300"
+          style={{ background: SHIPROCKET_ORANGE, width: `${progress}%` }}
+        />
       </div>
 
-      {/* Question */}
-      <div className="flex-1 flex items-center justify-center px-4 sm:px-8 py-10">
-        <div className="w-full max-w-xl">
-          <AnimatedStep visible={true} key={step}>
-            <div className="space-y-8">
-              <div className="space-y-3">
-                <p className="text-gray-400 text-xs font-mono">{String(step + 1).padStart(2, "0")} / {totalSteps}</p>
-                <h2 className="text-2xl sm:text-3xl font-semibold leading-snug text-gray-900">
-                  {current.label}
-                </h2>
-                {current.optional && <p className="text-xs text-gray-400">Optional — skip with Continue</p>}
-              </div>
-
-              <div className="space-y-3">
-                <textarea
-                  autoFocus
-                  value={answers[current.id] ?? ""}
-                  onChange={(e) => setAnswers({ ...answers, [current.id]: e.target.value })}
-                  placeholder={current.optional ? "Optional…" : "Your answer…"}
-                  rows={4}
-                  className="w-full bg-white border border-gray-200 rounded-2xl px-4 py-3.5 text-gray-900 placeholder-gray-400 outline-none text-base transition-all resize-none"
-                  style={{ "--tw-ring-color": `${SHIPROCKET_ORANGE}1a` } as React.CSSProperties}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = SHIPROCKET_ORANGE; e.currentTarget.style.boxShadow = `0 0 0 4px rgba(242,101,34,0.1)`; }}
-                  onBlur={(e) => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.boxShadow = "none"; }}
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                {step > 0 ? (
-                  <button
-                    onClick={() => setStep(step - 1)}
-                    className="px-5 py-2.5 text-gray-500 font-medium rounded-xl hover:bg-gray-100 transition-all text-sm"
-                  >
-                    ← Back
-                  </button>
-                ) : <span />}
-
-                {step < totalSteps - 1 ? (
-                  <button
-                    onClick={() => setStep(step + 1)}
-                    disabled={!current.optional && !answers[current.id]?.trim()}
-                    className="px-8 py-3 text-white font-semibold rounded-xl disabled:opacity-40 hover:opacity-90 active:scale-95 transition-all text-sm shadow-md"
-                    style={{ background: SHIPROCKET_ORANGE, boxShadow: "0 4px 14px rgba(242,101,34,0.25)" }}
-                  >
-                    Continue →
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleSubmit}
-                    disabled={submitting || (!current.optional && !answers[current.id]?.trim())}
-                    className="px-8 py-3 text-white font-semibold rounded-xl disabled:opacity-40 hover:opacity-90 active:scale-95 transition-all text-sm shadow-md"
-                    style={{ background: SHIPROCKET_ORANGE, boxShadow: "0 4px 14px rgba(242,101,34,0.25)" }}
-                  >
-                    {submitting ? "Submitting…" : "Submit application →"}
-                  </button>
-                )}
-              </div>
+      <div className="flex-1 px-5 sm:px-8 py-12 sm:py-16">
+        <div className="w-full max-w-xl mx-auto">
+          <div className="space-y-7">
+            <div className="space-y-2.5">
+              <h2 className="text-[22px] sm:text-[26px] font-semibold leading-snug tracking-tight text-[#14161a]">
+                {current.label}
+              </h2>
+              {current.optional && (
+                <p className="text-[13px] text-[#6b7280]">Optional. Continue to skip it.</p>
+              )}
             </div>
-          </AnimatedStep>
+
+            <textarea
+              autoFocus
+              key={step}
+              value={answers[current.id] ?? ""}
+              onChange={(e) => setAnswers({ ...answers, [current.id]: e.target.value })}
+              placeholder={current.optional ? "Optional" : "Your answer"}
+              rows={5}
+              aria-label={current.label}
+              className="w-full bg-white border border-[#d5d8dd] rounded-md px-3.5 py-3 text-[#14161a] placeholder:text-[#9ca3af] outline-none text-[15px] leading-[1.6] resize-none transition-colors focus:border-[#9ca3af] focus-visible:ring-2 focus-visible:ring-[#F26522] focus-visible:ring-offset-1"
+            />
+
+            <div className="flex items-center justify-between">
+              {step > 0 ? (
+                <button
+                  onClick={() => setStep(step - 1)}
+                  className="px-4 py-2.5 text-[#4b5563] font-medium rounded-md hover:bg-[#f4f5f6] transition-colors text-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F26522] focus-visible:ring-offset-2"
+                >
+                  Back
+                </button>
+              ) : <span />}
+
+              {step < totalSteps - 1 ? (
+                <button
+                  onClick={() => setStep(step + 1)}
+                  disabled={!current.optional && !answers[current.id]?.trim()}
+                  className="px-6 py-2.5 text-white font-medium rounded-md disabled:opacity-40 hover:opacity-90 transition-opacity text-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F26522] focus-visible:ring-offset-2"
+                  style={{ background: SHIPROCKET_ORANGE }}
+                >
+                  Continue
+                </button>
+              ) : (
+                <button
+                  onClick={handleSubmit}
+                  disabled={submitting || (!current.optional && !answers[current.id]?.trim())}
+                  className="px-6 py-2.5 text-white font-medium rounded-md disabled:opacity-40 hover:opacity-90 transition-opacity text-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F26522] focus-visible:ring-offset-2"
+                  style={{ background: SHIPROCKET_ORANGE }}
+                >
+                  {submitting ? "Submitting" : "Submit application"}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

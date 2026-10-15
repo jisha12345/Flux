@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase";
+import { createServiceClient } from "@/lib/supabase";
 import { scoreApplication } from "@/lib/claude";
 
 export async function POST(request: NextRequest) {
@@ -7,17 +7,19 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, email, phone, current_role, experience, skills, ...answers } = body;
 
-    const supabase = await createServerSupabaseClient();
+    // Service role: applicants are anonymous, and reading the inserted row
+    // back for its id needs a SELECT that anon must not have on candidates.
+    const supabase = createServiceClient();
 
     // Get default JD for scoring if no job_id provided
-    const jobDescription = `Tech role at Shiprocket — looking for engineers who deeply use AI and build at scale.`;
+    const jobDescription = `Engineering role at Shiprocket. We look for engineers who use AI tools in their daily work and have built systems at scale.`;
 
     const scoring = await scoreApplication(jobDescription, answers).catch(() => null);
 
     const { data, error } = await supabase
       .from("candidates")
       .insert({
-        name,
+        full_name: name,
         email,
         phone,
         current_role,

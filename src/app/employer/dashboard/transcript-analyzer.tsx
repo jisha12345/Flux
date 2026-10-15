@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { X } from "lucide-react";
 
 const SHIPROCKET_ORANGE = "#F26522";
 
@@ -69,13 +70,19 @@ export default function TranscriptAnalyzer({ interviewId, candidateName, role, o
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex">
       <div className="flex-1" onClick={onClose} />
-      <div className="w-full max-w-2xl bg-white h-full overflow-y-auto flex flex-col shadow-2xl">
+      <div className="w-full max-w-2xl bg-white h-full overflow-y-auto flex flex-col shadow-lg">
         <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
           <div>
-            <h2 className="font-bold text-gray-900">Interview Analysis</h2>
-            {candidateName && <p className="text-sm text-gray-500">{candidateName}{role ? ` — ${role}` : ""}</p>}
+            <h2 className="font-bold text-gray-900">Interview analysis</h2>
+            {candidateName && <p className="text-sm text-gray-500">{candidateName}{role ? `, ${role}` : ""}</p>}
           </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full text-xl">×</button>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-md"
+          >
+            <X className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+          </button>
         </div>
 
         <div className="flex-1 p-6 space-y-5">
@@ -85,12 +92,12 @@ export default function TranscriptAnalyzer({ interviewId, candidateName, role, o
                 <p className="font-semibold">Paste your interview transcript</p>
                 <p className="text-xs">Works with any transcript source:</p>
                 <ul className="text-xs space-y-0.5 opacity-80">
-                  <li>· <strong>Google Meet:</strong> After the call → Activities → Transcripts → View</li>
-                  <li>· <strong>Granola:</strong> Open note after meeting → Copy transcript</li>
-                  <li>· <strong>Zoom / Otter.ai:</strong> Export transcript → paste below</li>
-                  <li>· <strong>Recording to transcript:</strong> Upload the recording to Otter.ai or Fireflies.ai, then paste the output</li>
+                  <li>· <strong>Google Meet:</strong> after the call, open Activities, then Transcripts, then View</li>
+                  <li>· <strong>Granola:</strong> open the note after the meeting, then copy the transcript</li>
+                  <li>· <strong>Zoom / Otter.ai:</strong> export the transcript and paste it below</li>
+                  <li>· <strong>Recording to transcript:</strong> upload the recording to Otter.ai or Fireflies.ai, then paste the output</li>
                 </ul>
-                <p className="text-xs opacity-60 pt-1">To enable auto-recording on Google Meet: Ask your Workspace admin to enable recording, or use Granola (free) which records and transcribes automatically.</p>
+                <p className="text-xs opacity-60 pt-1">To enable auto-recording on Google Meet, ask your Workspace admin to turn on recording, or use Granola, which records and transcribes automatically.</p>
               </div>
               <textarea
                 value={transcript}
@@ -110,7 +117,7 @@ export default function TranscriptAnalyzer({ interviewId, candidateName, role, o
                 className="w-full py-3 text-white font-semibold rounded-xl text-sm disabled:opacity-40 hover:opacity-90 transition-all"
                 style={{ background: SHIPROCKET_ORANGE }}
               >
-                {loading ? "Analysing transcript…" : "Generate AI Analysis →"}
+                {loading ? "Analysing transcript…" : "Generate AI analysis"}
               </button>
             </>
           ) : (
@@ -145,7 +152,7 @@ export default function TranscriptAnalyzer({ interviewId, candidateName, role, o
               {/* Technical */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="rounded-xl border border-green-100 bg-green-50 p-4">
-                  <p className="text-xs font-bold text-green-700 mb-2">✓ Technical Strengths</p>
+                  <p className="text-xs font-bold text-green-700 mb-2">Technical strengths</p>
                   <ul className="space-y-1">
                     {analysis.technical_assessment?.strengths?.map((s, i) => (
                       <li key={i} className="text-sm text-green-800 flex gap-2"><span>·</span>{s}</li>
@@ -153,7 +160,7 @@ export default function TranscriptAnalyzer({ interviewId, candidateName, role, o
                   </ul>
                 </div>
                 <div className="rounded-xl border border-red-100 bg-red-50 p-4">
-                  <p className="text-xs font-bold text-red-700 mb-2">✗ Gaps</p>
+                  <p className="text-xs font-bold text-red-700 mb-2">Gaps</p>
                   <ul className="space-y-1">
                     {analysis.technical_assessment?.gaps?.map((g, i) => (
                       <li key={i} className="text-sm text-red-800 flex gap-2"><span>·</span>{g}</li>
@@ -165,7 +172,7 @@ export default function TranscriptAnalyzer({ interviewId, candidateName, role, o
               {/* Key moments */}
               {analysis.key_moments?.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Key Moments</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Key moments</p>
                   {analysis.key_moments.map((m, i) => (
                     <div key={i} className="rounded-xl border border-gray-200 p-3">
                       <p className="text-sm text-gray-700 italic">&ldquo;{m.quote}&rdquo;</p>
@@ -178,7 +185,7 @@ export default function TranscriptAnalyzer({ interviewId, candidateName, role, o
               {/* Red flags */}
               {analysis.red_flags?.length > 0 && analysis.red_flags[0] && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-                  <p className="text-xs font-bold text-red-700 mb-2">🚩 Red Flags</p>
+                  <p className="text-xs font-bold text-red-700 mb-2">Red flags</p>
                   <ul className="space-y-1">
                     {analysis.red_flags.map((f, i) => (
                       <li key={i} className="text-sm text-red-800">{f}</li>
@@ -189,7 +196,7 @@ export default function TranscriptAnalyzer({ interviewId, candidateName, role, o
 
               {/* Next steps */}
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-                <p className="text-xs font-bold text-blue-700 mb-2">→ Next Steps</p>
+                <p className="text-xs font-bold text-blue-700 mb-2">Next steps</p>
                 <p className="text-sm text-blue-800">{analysis.next_steps}</p>
               </div>
 
@@ -197,7 +204,7 @@ export default function TranscriptAnalyzer({ interviewId, candidateName, role, o
                 onClick={() => setAnalysis(null)}
                 className="w-full py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm hover:bg-gray-50"
               >
-                ← Analyse another transcript
+                Analyse another transcript
               </button>
             </div>
           )}

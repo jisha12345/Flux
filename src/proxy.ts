@@ -15,7 +15,8 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/api/apply") ||
     pathname.startsWith("/api/assessment") ||
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon");
+    pathname.startsWith("/favicon") ||
+    pathname.startsWith("/icon");
 
   if (isPublic) return NextResponse.next();
 
