@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Textarea } from "@/components/ui/textarea";
 
-const OR = "#F26522";
-const OR_LIGHT = "rgba(242,101,34,0.08)";
+const OR = "#7C3AED";
+const OR_LIGHT = "rgba(124,58,237,0.08)";
 
 
 const focus = {
@@ -92,6 +92,8 @@ export default function JDBuilderPage() {
   const [assessmentSaved, setAssessmentSaved] = useState(false);
   const [assessmentCopied, setAssessmentCopied] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
+  const [dragOver, setDragOver] = useState(false);
   const router = useRouter();
 
   function resetJDState() {
@@ -101,11 +103,10 @@ export default function JDBuilderPage() {
     setAssessmentSaved(false);
     setEditMode(false);
     setGenerateError("");
+    setJobTitle("");
   }
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function processUploadedFile(file: File) {
     setUploading(true);
     resetJDState();
     try {
@@ -119,8 +120,14 @@ export default function JDBuilderPage() {
       setGenerateError("Failed to read file. Please try again.");
     } finally {
       setUploading(false);
-      e.target.value = "";
     }
+  }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    await processUploadedFile(file);
   }
 
   async function generateJD() {
@@ -156,9 +163,10 @@ export default function JDBuilderPage() {
 
   async function saveJD() {
     setSaveError("");
-    const title = jd.match(/^#\s+(.+)/m)?.[1]?.trim()
+    const derivedTitle = jd.match(/^#\s+(.+)/m)?.[1]?.trim()
       || prompt?.split("\n")[0]?.replace(/[^a-zA-Z0-9 ]/g, "").trim().slice(0, 60)
       || "Job Description";
+    const title = jobTitle.trim() || derivedTitle;
     try {
       const res = await fetch("/api/jd", {
         method: "POST",
@@ -288,12 +296,23 @@ export default function JDBuilderPage() {
               <div className="space-y-4">
                 <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide block mb-2">Upload a file</label>
                 <label
-                  className="flex flex-col items-center justify-center gap-3 border-2 border-dashed border-gray-200 rounded-xl py-12 cursor-pointer hover:border-orange-300 transition-colors"
-                  style={{ background: uploading ? OR_LIGHT : "#FAFAFA" }}
+                  className={`flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl py-12 cursor-pointer transition-colors ${dragOver ? "border-violet-400" : "border-gray-200 hover:border-violet-300"}`}
+                  style={{ background: uploading ? OR_LIGHT : dragOver ? "rgba(124,58,237,0.05)" : "#FAFAFA" }}
+                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                  onDragEnter={e => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={e => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    const file = e.dataTransfer.files[0];
+                    if (file) processUploadedFile(file);
+                  }}
                 >
-                  <span className="text-3xl">{uploading ? "⏳" : "↑"}</span>
+                  <span className="text-3xl">{uploading ? "⏳" : dragOver ? "📄" : "↑"}</span>
                   <div className="text-center">
-                    <p className="text-sm font-medium text-gray-700">{uploading ? "Uploading…" : "Click to upload"}</p>
+                    <p className="text-sm font-medium text-gray-700">
+                      {uploading ? "Uploading…" : dragOver ? "Drop to upload" : "Drag & drop or click to upload"}
+                    </p>
                     <p className="text-xs text-gray-400 mt-0.5">PDF, Word (.doc/.docx), Excel (.xls/.xlsx), or .txt</p>
                   </div>
                   <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt" className="hidden" onChange={handleUpload} disabled={uploading} />
@@ -338,44 +357,62 @@ export default function JDBuilderPage() {
         {jd && (
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
             {/* Preview header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full" style={{ background: OR }} />
-                <span className="text-sm font-semibold text-gray-900 font-display">Job Description</span>
-                {saved && (
-                  <span className="ml-1 px-2 py-0.5 text-xs font-medium rounded-full" style={{ background: "rgba(34,197,94,0.1)", color: "#16a34a" }}>
-                    Published ✓
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {saved && (
-                  <Link
-                    href="/employer/dashboard?tab=screen"
-                    className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-all"
-                    style={{ background: "rgba(242,101,34,0.08)", color: OR }}
+            <div className="px-6 py-4 border-b border-gray-100 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full" style={{ background: OR }} />
+                  <span className="text-sm font-semibold text-gray-900 font-display">Job Description</span>
+                  {saved && (
+                    <span className="ml-1 px-2 py-0.5 text-xs font-medium rounded-full" style={{ background: "rgba(34,197,94,0.1)", color: "#16a34a" }}>
+                      Published ✓
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {saved && (
+                    <Link
+                      href="/employer/dashboard?tab=screen"
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-all"
+                      style={{ background: "rgba(242,101,34,0.08)", color: OR }}
+                    >
+                      Screen CVs →
+                    </Link>
+                  )}
+                  <button
+                    onClick={() => setEditMode(!editMode)}
+                    className="px-3 py-1.5 text-xs font-semibold border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-all"
                   >
-                    Screen CVs →
-                  </Link>
-                )}
-                <button
-                  onClick={() => setEditMode(!editMode)}
-                  className="px-3 py-1.5 text-xs font-semibold border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-all"
-                >
-                  {editMode ? "Preview" : "Edit"}
-                </button>
-                <button
-                  onClick={saveJD}
-                  disabled={saved || !jd.trim()}
-                  className="px-4 py-1.5 text-sm font-semibold rounded-lg transition-all disabled:opacity-50"
-                  style={saved
-                    ? { background: "rgba(34,197,94,0.1)", color: "#16a34a", border: "1px solid rgba(34,197,94,0.2)" }
-                    : { background: OR, color: "#fff" }
-                  }
-                >
-                  {saved ? "Published ✓" : "Publish JD"}
-                </button>
+                    {editMode ? "Preview" : "Edit"}
+                  </button>
+                  <button
+                    onClick={saveJD}
+                    disabled={saved || !jd.trim()}
+                    className="px-4 py-1.5 text-sm font-semibold rounded-lg transition-all disabled:opacity-50"
+                    style={saved
+                      ? { background: "rgba(34,197,94,0.1)", color: "#16a34a", border: "1px solid rgba(34,197,94,0.2)" }
+                      : { background: OR, color: "#fff" }
+                    }
+                  >
+                    {saved ? "Published ✓" : "Publish JD"}
+                  </button>
+                </div>
               </div>
+              {!saved && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-semibold text-gray-500 shrink-0">Job title</label>
+                  <input
+                    type="text"
+                    value={jobTitle}
+                    onChange={e => setJobTitle(e.target.value)}
+                    placeholder={
+                      jd.match(/^#\s+(.+)/m)?.[1]?.trim()
+                      || prompt?.split("\n")[0]?.replace(/[^a-zA-Z0-9 ]/g, "").trim().slice(0, 60)
+                      || "e.g. Senior Product Manager"
+                    }
+                    className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-violet-400"
+                  />
+                </div>
+              )}
             </div>
 
             {saveError && (
